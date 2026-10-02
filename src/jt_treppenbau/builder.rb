@@ -201,7 +201,7 @@ module JTools
       def build_holm(grp, plan, p)
         d = p['tread_t']; hw = p['holm_w']; hh = p['holm_h']
         h = plan.h
-        zs = (0...plan.n).map { |k| [k * h - d, 0.5 * (h - d)].max }
+        zs = (0...plan.nlines).map { |k| [k * h - d, 0.5 * (h - d)].max }
         m = mat(:metall)
         plan.profile(:walk, zs).each do |pc|
           base = pc.map(&:first)
@@ -229,7 +229,7 @@ module JTools
           on_str = stringer_sides(plan, p).include?(which)
           over = on_str ? p['str_over'] : 0.0
           off = on_str ? p['str_t'] / 2.0 : -p['rail_inset']
-          zs = (0...plan.n).map { |k| plan.nose_z(k) + rh }
+          zs = (0...plan.nlines).map { |k| plan.nose_z(k) + rh }
           poly = plan.send(which)
           keys = plan.keys_for(which)
           plan.profile(which, zs).each do |pc|
@@ -283,7 +283,7 @@ module JTools
       # --- Hilfsgeometrie -------------------------------------------------
 
       def build_walkline(grp, plan)
-        zs = (0...plan.n).map { |k| plan.nose_z(k) }
+        zs = (0...plan.nlines).map { |k| plan.nose_z(k) }
         plan.profile(:walk, zs).each do |pc|
           pts = pc.map { |it| pt3(it[0][0], it[0][1], it[1] + 0.2) }
           grp.entities.add_edges(pts) if pts.size >= 2

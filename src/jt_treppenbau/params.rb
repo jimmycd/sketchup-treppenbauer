@@ -90,6 +90,10 @@ module JTools
         { key: 'loch_x', label: 'Treppenloch: Abstand von linker Wand', type: 'number', default: 0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 0, step: 1, fitonly: true, lochonly: true,
           help: 'Gemessen an der hinteren Wand von der linken Raumecke.' },
         { key: 'loch_y', label: 'Treppenloch: Abstand von hinterer Wand', type: 'number', default: 0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 0, step: 1, fitonly: true, lochonly: true },
+        { key: 'loch_gap', label: 'Austritt: Abstand vom Rand des Treppenlochs (Austrittspodest)', type: 'number', default: 0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 0, step: 0.5, fitonly: true, lochonly: true, variants: NOSPIRAL,
+          help: '0 = die Austrittskante (letzte Steigung) liegt genau an der Kante des Treppenlochs. > 0 = die letzte Steigung endet um dieses Maß ' \
+                'vor der Lochkante (im Treppenloch, rechtwinklig zur Kante gemessen); dazwischen wird ein Austrittspodest auf Höhe der oberen Decke ' \
+                'konstruiert (Podestplatte, Wangen, Geländer, CNC-Teile).' },
         { key: 'head_min', label: 'Mindest-Kopfhöhe (lichte Durchgangshöhe)', type: 'number', default: 200.0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 150, step: 1, fitonly: true, lochonly: true },
 
         # --- Höhe & Steigung ------------------------------------------------

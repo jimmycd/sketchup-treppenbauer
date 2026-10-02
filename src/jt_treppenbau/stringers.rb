@@ -154,7 +154,7 @@ module JTools
         ext = p['nosing'].to_f + (p['risers'] ? p['riser_t'].to_f : 0.0)
         lw = plan.lines_w
         curve = p['str_form'] == 'kurve'
-        zs = (0...plan.n).map { |k| plan.nose_z(k) + over }
+        zs = (0...plan.nlines).map { |k| plan.nose_z(k) + over }
         boards = []
         lists = []
         need = 0.0

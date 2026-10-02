@@ -294,7 +294,7 @@ module JTools
         rail_sides(plan, p).each do |which|
           on_str = Builder.stringer_sides(plan, p).include?(which)
           over = on_str ? p['str_over'] : 0.0
-          zs = (0...plan.n).map { |k| plan.nose_z(k) + rh }
+          zs = (0...plan.nlines).map { |k| plan.nose_z(k) + rh }
           keys = plan.keys_for(which)
           plan.profile(which, zs).each do |pc|
             lens = []
@@ -330,7 +330,7 @@ module JTools
         rail_sides(plan, p).each do |which|
           side = which == :outer ? plan.outer_side : -plan.outer_side
           off = Builder.stringer_sides(plan, p).include?(which) ? p['str_t'] / 2.0 : -p['rail_inset']
-          zs = (0...plan.n).map { |k| plan.nose_z(k) + p['rail_h'] }
+          zs = (0...plan.nlines).map { |k| plan.nose_z(k) + p['rail_h'] }
           plan.profile(which, zs).each do |pc|
             base = pc.map(&:first)
             mn = Geo.miter_normals(base, side)

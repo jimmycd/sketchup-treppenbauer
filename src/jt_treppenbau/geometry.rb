@@ -226,8 +226,15 @@ module JTools
         @lines_w[-1]
       end
 
+      # Anzahl Trittflächen (Stufen + Podeste). Ein Austrittspodest (fehler.md Nr. 5)
+      # liegt als zusätzliche Fläche auf Höhe H hinter der letzten Steigung.
       def treads
-        @n - 1
+        @lines_w ? @lines_w.size - 1 : @n - 1
+      end
+
+      # Anzahl Stufenlinien (= n, mit Austrittspodest n + 1)
+      def nlines
+        @lines_w ? @lines_w.size : @n
       end
 
       # Zuordnung Gehlinie -> Innenkante (stückweise linear)
@@ -308,7 +315,7 @@ module JTools
       end
 
       def nose_z(k)
-        (k + 1) * @h
+        [(k + 1) * @h, @H].min
       end
 
       # Parameter der Stufenlinien auf einer Begrenzung
@@ -467,6 +474,17 @@ module JTools
         raise PlanError, 'Austrittskante liegt hinter dem Lauf.' if d.min < -1e-6
         straight(d.min)
         d = cut_dists(pt, cdir)
+        [@inner, @walk, @outer].each_with_index do |pl, i|
+          pl.push(Geo.add(pl.pts[-1], Geo.mul(@dir, d[i]))) if d[i] > 1e-7
+        end
+        @p = @inner.pts[-1]
+      end
+
+      # Alle drei Linien einzeln in Laufrichtung bis zur Schnittlinie verlängern
+      # (Enden dürfen schon gestaffelt sein, z. B. nach straight_to_cut).
+      def extend_to_cut(pt, cdir)
+        d = cut_dists(pt, cdir)
+        raise PlanError, 'Austrittskante liegt hinter dem Lauf.' if d.min < -1e-6
         [@inner, @walk, @outer].each_with_index do |pl, i|
           pl.push(Geo.add(pl.pts[-1], Geo.mul(@dir, d[i]))) if d[i] > 1e-7
         end
@@ -790,8 +808,17 @@ module JTools
             cs = plan.corners.select { |c| c[:w] && c[:w] > z[:w0] - 1e-6 && c[:w] < z[:w1] + 1e-6 }.sort_by { |c| c[:w] }
             span = cs.empty? ? 0.0 : cs[-1][:w] - cs[0][:w]
             d_min = [lwz / 2.0 + 0.2 * a, span / 2.0 + a / 2.0 + 0.2 * a].max
-            lo = zi > 0 ? (wc + ((plan.zones[zi - 1][:w0] + plan.zones[zi - 1][:w1]) / 2.0)) / 2.0 : 0.0
-            hi = zi < plan.zones.size - 1 ? (wc + ((plan.zones[zi + 1][:w0] + plan.zones[zi + 1][:w1]) / 2.0)) / 2.0 : wt
+            zp = zi > 0 ? plan.zones[zi - 1] : nil
+            zn = zi < plan.zones.size - 1 ? plan.zones[zi + 1] : nil
+            # Nachbar-Podest (z. B. Austrittspodest): Wendelung darf bis an das Podest reichen
+            lo = if zp.nil? then 0.0
+                 elsif zp[:kind] == :landing then zp[:w1]
+                 else (wc + (zp[:w0] + zp[:w1]) / 2.0) / 2.0
+                 end
+            hi = if zn.nil? then wt
+                 elsif zn[:kind] == :landing then zn[:w0]
+                 else (wc + (zn[:w0] + zn[:w1]) / 2.0) / 2.0
+                 end
             d_max = [wc - lo, hi - wc].min
             auto = (v == 'u_wendel' ? 10 : 6)
             d_target = (nv > 0 ? nv : auto) * a / 2.0
@@ -900,7 +927,7 @@ module JTools
         h = plan.h; a = plan.a
         sm = 2 * h + a
         ang = Math.atan2(h, a) * 180.0 / Math::PI
-        plan.info.unshift(['Lauflänge auf der Gehlinie', format('%.1f cm', plan.wtot)])
+        plan.info.unshift(['Lauflänge auf der Gehlinie', format('%.1f cm', plan.lines_w[plan.n - 1] || plan.wtot)])
         plan.info.unshift(['Steigungswinkel', format('%.1f°', ang)])
         plan.info.unshift(['Schrittmaß 2h + a', format('%.1f cm', sm)])
         plan.info.unshift(['Auftritt a (Gehlinie)', format('%.2f cm', a)])

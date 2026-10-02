@@ -222,6 +222,12 @@ module JTools
           lx = @p['loch_x'].to_f; ly = @p['loch_y'].to_f
           lx = @W - lx - lw if @mirror
           @loch_c = [lx, @L - ly - ll, lx + lw, @L - ly] # x0, y0, x1, y1
+          # Austrittspodest (fehler.md Nr. 5): Austritt um loch_gap vor der Lochkante
+          @x_gap = @p['loch_gap'].to_f
+          if @x_gap > 1e-6
+            span = %w[l_podest l_wendel].include?(@v) ? lw : ll
+            raise PlanError, format('Abstand des Austritts vom Treppenloch (%.1f cm) muss kleiner als das Treppenloch (%.1f cm) sein.', @x_gap, span) if @x_gap > span - 10.0
+          end
         end
 
         # Linie der Begrenzung k, um o nach innen versetzt: [Punkt, Richtung]
@@ -322,13 +328,16 @@ module JTools
           end
         end
 
-        def exit_line
+        # Austrittskante der letzten Steigung; gap = Abstand von der Lochkante
+        # (in das Treppenloch hinein, rechtwinklig zur Kante). full = Lochkante selbst.
+        def exit_line(full = false)
           if @loch_c
             x0, y0, x1, y1 = @loch_c
+            gp = full ? 0.0 : x_gap
             case @v
-            when 'gerade', 'gerade_podest' then [[0.0, y1], [1.0, 0.0]]
-            when 'l_podest', 'l_wendel' then [[x1, 0.0], [0.0, 1.0]]
-            else [[0.0, y0], [1.0, 0.0]]
+            when 'gerade', 'gerade_podest' then [[0.0, y1 - gp], [1.0, 0.0]]
+            when 'l_podest', 'l_wendel' then [[x1 - gp, 0.0], [0.0, 1.0]]
+            else [[0.0, y0 + gp], [1.0, 0.0]]
             end
           else
             case @v
@@ -336,6 +345,10 @@ module JTools
             when 'l_podest', 'l_wendel' then off_line(:r, g(:r))
             end
           end
+        end
+
+        def x_gap
+          @loch_c && @x_gap.to_f > 1e-6 ? @x_gap : 0.0
         end
 
         def setup_straight
@@ -720,6 +733,16 @@ module JTools
           kinds[r1 - 1] = :landing if podest
           flights = podest ? [r1, n - r1] : [n]
           t = TurtleLike.new(Polyline.new([i0, @I1]), Polyline.new([m0, @M1]), Polyline.new([o0, @O1]), [], [])
+          if x_gap > 0
+            exf = exit_line(true)
+            ie = isect(@i_line, exf); oe = isect(@o_line, exf)
+            z = { kind: :landing, w0: t.walk.length, s0: t.inner.length }
+            t.inner.push(ie); t.walk.push(lerp(ie, oe, 0.5)); t.outer.push(oe)
+            z[:w1] = t.walk.length; z[:s1] = t.inner.length
+            t.zones << z
+            depths += [z[:w1] - z[:w0]]
+            kinds << :landing
+          end
           plan = new_plan(n, a)
           plan.b = (dist(i0, o0) + b_exit) / 2.0
           finish(plan, t, n, a, depths, kinds, flights, plan.b / 2.0)
@@ -809,6 +832,7 @@ module JTools
             end
             depths += [a] * (rl - 1)
             @ext = ext
+            exit_landing(t, depths, kinds)
           else # Wendelstufen
             sol = kite_layout(n, a)
             return fail!('Drachenstufen lassen sich nicht mittig auf die Ecken legen.') unless sol
@@ -837,6 +861,7 @@ module JTools
             depths = [a] * ntr
             kinds = Array.new(ntr, :step)
             flights = [n]
+            exit_landing(t, depths, kinds)
           end
           plan = new_plan(n, a)
           plan.b = @b
@@ -849,6 +874,14 @@ module JTools
             return fail!('Treppe ist zu lang für die Raumlänge.') if ys.min < -TOL
           end
           check_room(plan) ? plan : nil
+        end
+
+        # Austrittspodest zwischen Austrittskante und Lochkante anhängen
+        def exit_landing(t, depths, kinds)
+          return unless x_gap > 0 && @exit
+          z = t.turn(:landing) { t.extend_to_cut(*exit_line(true)) }
+          depths << z[:w1] - z[:w0]
+          kinds << :landing
         end
 
         # spiegeln (linksgewendelt) und Plan fertigstellen
@@ -981,7 +1014,13 @@ module JTools
             info << ['Treppe ragt über das Raumende (Antritt) hinaus', format('%.1f cm', -ys.min)]
           end
           info << ['Luft zu den Wänden (über Spiel hinaus)', txt.join(' / ') + ' cm'] unless txt.empty?
-          info << ['Austritt an', @loch_c ? 'Kante Treppenloch' : (@v =~ /^[uz]_/ ? 'frei (kein Treppenloch)' : 'Wand / Raumgrenze')]
+          info << ['Austritt an', @loch_c ? (x_gap > 0 ? format('%.1f cm vor der Kante des Treppenlochs', x_gap) : 'Kante Treppenloch') : (@v =~ /^[uz]_/ ? 'frei (kein Treppenloch)' : 'Wand / Raumgrenze')]
+          if x_gap > 0 && plan.kinds[-1] == :landing
+            lw = plan.lines_w
+            l0 = plan.line(lw[-2]); l1 = plan.line(lw[-1])
+            info << ['Austrittspodest (auf Deckenhöhe)', format('Tiefe %.1f cm (Gehlinie %.1f cm), Breite %.1f cm', x_gap, lw[-1] - lw[-2],
+                                                         (Geo.dist(l0[:in], l0[:out]) + Geo.dist(l1[:in], l1[:out])) / 2.0)]
+          end
           plan.info = info + plan.info
           if winder?
             glu = plan.instance_variable_get(:@gl).to_f
@@ -1017,7 +1056,7 @@ module JTools
         zc = plan.H - p['floor_t'].to_f
         best = nil
         lw = plan.lines_w
-        (0...plan.treads).each do |k|
+        (0...plan.n - 1).each do |k| # nur Stufen (ohne Austrittspodest auf Deckenhöhe)
           top = (k + 1) * plan.h
           [0.02, 0.5, 0.98].each do |f|
             w = lw[k] + f * (lw[k + 1] - lw[k])
