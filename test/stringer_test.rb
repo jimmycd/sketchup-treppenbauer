@@ -31,11 +31,32 @@ Params::NOSPIRAL.each do |v|
         end
       end
       r[:wange].each_cons(2) do |a, b|
-        next unless a[:which] == b[:which] && a[:piece] == b[:piece] && !a[:landing] && !b[:landing] && (b[:u0] - a[:u1]).abs < 0.01
+        next unless a[:which] == b[:which] && a[:piece] == b[:piece] && (form == 'gerade' || (!a[:landing] && !b[:landing])) && (b[:u0] - a[:u1]).abs < 0.01
         jump = [jump, (Stringers.top(a, a[:u1]) - Stringers.top(b, b[:u0])).abs, (Stringers.bot(a, a[:u1]) - Stringers.bot(b, b[:u0])).abs].max
       end
       ws = r[:wange].map { |b| b[:w] }.uniq
-      ok = minover >= over - 1e-6 && minunder >= under - 1e-6 && (form == 'kurve' ? (maxover - over).abs < 1e-6 && jump < 1e-6 : ws.size <= 1)
+      # gerade: Brettbreite rechtwinklig nirgends kleiner als W (Unterkante dicht
+      # abgetastet gegen die Oberkante des Bretts)
+      wdev = 0.0
+      if form == 'gerade'
+        r[:wange].each do |b|
+          tp = b[:tp]
+          (0..100).each do |i|
+            u = b[:u0] + (b[:u1] - b[:u0]) * i / 100.0
+            q = [u, Stringers.bot(b, u)]
+            next if q[1] < 0.01
+            dmin = tp.each_cons(2).map do |p0, p1|
+              d = [p1[0] - p0[0], p1[1] - p0[1]]; l2 = d[0]**2 + d[1]**2
+              t = [[((q[0] - p0[0]) * d[0] + (q[1] - p0[1]) * d[1]) / l2, 0.0].max, 1.0].min
+              Math.hypot(q[0] - p0[0] - t * d[0], q[1] - p0[1] - t * d[1])
+            end.min
+            # nur innerhalb des Bretts aussagekräftig (Endschnitt senkrecht)
+            next if u - b[:u0] < b[:w] || b[:u1] - u < b[:w]
+            wdev = [wdev, b[:w] - dmin].max
+          end
+        end
+      end
+      ok = minover >= over - 1e-6 && minunder >= under - 1e-6 && (form == 'kurve' ? (maxover - over).abs < 1e-6 && jump < 1e-6 : ws.size <= 1 && jump < 1e-6 && wdev < 1e-3)
       fails += 1 unless ok
       puts format('%-6s %-14s %-5s %-6s boards=%2d W=%.1f..%.1f over %.2f/%.2f under min %.2f fuge %.3f knick %.1f° %s', form, v, extra.empty? ? 'frei' : 'raum', dir,
                   r[:wange].size, r[:wmin] || r[:width], r[:width], minover, maxover, minunder, jump, kink, ok ? 'OK' : 'FEHLER')

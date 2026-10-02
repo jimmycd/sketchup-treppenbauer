@@ -31,6 +31,13 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
 
+## Nach 2.0.0 – Stöße der eingestemmten Wange bündig (fehler.md Nr. 2)
+- **Fehler behoben:** Bei Form „gerade“ (konstante Breite) hatte jedes Brett seine eigene Oberkanten-Gerade → an Gehrungsfugen (Wendelbereich) und Podesten Versatz oben und unten (bis > 50 cm).
+- Jetzt je Profilstück **stetige Oberkante**: Läufe aus mehreren Brettern bekommen gemeinsame Fugenhöhen (LP `joint_heights`/`lp_min`: Summe der größten Überstände je Brett minimal, danach kleinste Fläche; je Brett weiter gerade). An Podesten knickt die Oberkante im Podestbrett in die Steigung des Laufs ein (Kröpfung, `straight_piece`); sonst wird das niedrigere Brettende angehoben.
+- **Unterkante = Parallele** im Abstand der Brettbreite (`offset_down`, Gehrung an Knicken) → Ober- und Unterkante an jedem Stoß bündig, Breite rechtwinklig überall = `str_h`. Dadurch kleiner Knick der Unterkante kurz hinter dem Stoß.
+- Brettbreite automatisch: `straight_need` (Bisektion, auf 0,5 cm). Bretter haben jetzt `:tp`/`:bp` (Polylinien) wie die geschwungene Form → 3D/CNC über `curve_outline`/`curve_band`.
+- Test: `stringer_test.rb` prüft bei „gerade“ zusätzlich Fuge = 0 (auch an Podesten) und Mindestbreite – 0 Fehler; build/sattel/kite/cnc/pk_check/reload ohne Fehler. Version bleibt 2.0.0 (noch keine neue .rbz).
+
 ## Neu in 2.0.0 – Update ohne Deinstallation/Neustart
 - **Ursache vorher:** `main.rb` lud die Untermodule mit `require` → Ruby lädt eine Datei pro Sitzung nur einmal; nach Installation einer neuen .rbz lief bis zum Neustart der alte Code. (Signieren ändert daran nichts.)
 - `main.rb`: Untermodule per `load` (`module_files`, `load_modules`); neue Methode `Treppenbau.reload(quiet:)` lädt Registrierungsdatei + `main.rb` + alle Module neu, schließt offene Dialoge, unterdrückt Konstanten-Warnungen, meldet „alt → neu“ bzw. Fehler (Syntaxfehler → Meldung statt Absturz). Menüs/Toolbar nur einmal angelegt (`file_loaded?` + `@ui_created`).

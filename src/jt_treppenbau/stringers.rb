@@ -9,6 +9,9 @@
 #   * die Unterkante liegt an jeder Stufe mindestens str_under unter der
 #     Stufenunterkante (hinteres Ende des Einstands) – darf variieren.
 #   Brettbreite: str_h > 0 fest (mit Prüfung), 0 = kleinster passender Wert.
+#   Stöße (Gehrung zwischen Brettern, Podeste): Ober- und Unterkante bündig –
+#   Oberkante je Profilstück stetig (Fugenhöhen gemeinsam, an Podesten
+#   Kröpfung im Podestbrett), Unterkante = Parallele im Abstand der Brettbreite.
 #   Form „geschwungen“ (str_form = 'kurve'): Ober- und Unterkante sind – von
 #   der Seite gesehen – stetige, knickfreie Kurven (monotone kubische
 #   Hermite-Interpolation) je Laufabschnitt zwischen Podesten/Eckpfosten:
@@ -153,6 +156,7 @@ module JTools
         curve = p['str_form'] == 'kurve'
         zs = (0...plan.n).map { |k| plan.nose_z(k) + over }
         boards = []
+        lists = []
         need = 0.0
         %i[outer inner].each do |which|
           next unless kind(plan, p, which) == 'wange'
@@ -211,7 +215,12 @@ module JTools
                        elsif b[:idx1] then line_normal(plan, b[:idx1], b[:dir], side)
                        end
             end
-            curve_piece(list, landings, plan) if curve
+            if curve
+              curve_piece(list, landings, plan)
+            else
+              straight_piece(list)
+              lists << list
+            end
             piece_boards << list
             boards.concat(list)
           end
@@ -234,15 +243,230 @@ module JTools
           res[:newels].each { |nw| nw[:zbot] = [[bot(nw[:a], nw[:a][:u1]), bot(nw[:b], nw[:b][:u0])].min, 0.0].max }
           return
         end
+        # gerade Wange: Unterkante = Parallele im Abstand der Brettbreite zur
+        # (stetigen) Oberkante -> Stöße oben und unten bündig
+        need = straight_need(lists)
         width = p['str_h'].to_f > 0 ? p['str_h'].to_f : need
         if p['str_h'].to_f > 0 && need > p['str_h'].to_f + 0.01
           res[:warnings] << format('Wangenhöhe %.1f cm zu gering – mindestens %.1f cm nötig (Mindestabstand unter den Stufen).', p['str_h'].to_f, need)
         end
+        lists.each { |list| straight_bottom(list, width) }
         boards.each { |b| b[:w] = width }
         res[:newels].each { |nw| nw[:zbot] = [[bot(nw[:a], nw[:a][:u1]), bot(nw[:b], nw[:b][:u0])].min, 0.0].max }
         res[:wange] = boards
         res[:width] = width
         res[:need] = need
+      end
+
+      # --- gerade Wange: bündige Stöße ------------------------------------
+      #
+      # Oberkante je Profilstück stetig (Polylinie b[:tv] je Brett):
+      #   * Läufe aus mehreren Brettern (Wendelbereiche): gemeinsame Höhe an
+      #     jeder Gehrungsfuge, je Brett gerade; Höhen so, dass die Fläche
+      #     über den Stufenvorderkanten (+ Überstand) am kleinsten ist (LP).
+      #   * Stöße an Podesten: die Oberkante knickt im Nachbarbrett in die
+      #     Gerade des anderen Bretts ein (obere Hüllkurve, Kröpfung); sonst
+      #     wird das niedrigere Brettende angehoben.
+      # Die Unterkante ist die Parallele im Abstand der Brettbreite (Gehrung
+      # an den Knicken) -> Ober- und Unterkante an jedem Stoß bündig.
+      def straight_piece(list)
+        runs = []
+        list.each do |b|
+          if b[:landing] || runs.empty? || runs[-1][-1][:landing] || b[:u0] > runs[-1][-1][:u1] + 0.01
+            runs << [b]
+          else
+            runs[-1] << b
+          end
+        end
+        list.each { |b| b[:tv] = [[b[:u0], b[:c] + b[:s] * b[:u0]], [b[:u1], b[:c] + b[:s] * b[:u1]]] }
+        runs.each do |run|
+          next if run.size < 2
+          zs = joint_heights(run)
+          next unless zs
+          run.each_with_index { |b, i| b[:tv] = [[b[:u0], zs[i]], [b[:u1], zs[i + 1]]] }
+        end
+        list.each_cons(2) do |a, b|
+          next if (b[:u0] - a[:u1]).abs > 0.01
+          uj = a[:u1]
+          za = a[:tv][-1][1]; zb = b[:tv][0][1]
+          next if (za - zb).abs < 1e-6
+          pa = a[:tv][-2]; qb = b[:tv][1]
+          sa = (za - pa[1]) / (uj - pa[0])
+          sb = (qb[1] - zb) / (qb[0] - b[:u0])
+          if sb > sa + 1e-9
+            ux = uj + (za - zb) / (sb - sa)
+            if za < zb && ux > pa[0] + 0.01
+              a[:tv] = a[:tv].select { |u, _| u < ux - 1e-6 } + [[ux, za + sa * (ux - uj)], [uj, zb]]
+              next
+            elsif za > zb && ux < qb[0] - 0.01
+              b[:tv] = [[b[:u0], za], [ux, zb + sb * (ux - b[:u0])]] + b[:tv].select { |u, _| u > ux + 1e-6 }
+              next
+            end
+          end
+          if za < zb
+            a[:tv][-1] = [uj, zb]
+          else
+            b[:tv][0] = [b[:u0], za]
+          end
+        end
+      end
+
+      # Höhen an den Fugen eines Laufs aus mehreren geraden Brettern:
+      # Summe der größten Überstände je Brett möglichst klein (danach kleinste
+      # Fläche), als lineares Programm in den Fugenhöhen z_j und je Brett
+      # einem Überschuss E_i >= Oberkante - Anforderung.
+      def joint_heights(run)
+        k = run.size
+        nv = 2 * k + 1
+        rows = []
+        run.each_with_index do |b, i|
+          l = [b[:u1] - b[:u0], 1e-9].max
+          b[:req].each do |u, z|
+            t = [[(u - b[:u0]) / l, 0.0].max, 1.0].min
+            co = Array.new(nv, 0.0)
+            co[i] = 1.0 - t
+            co[i + 1] = t
+            rows << [co, z, i]
+          end
+        end
+        return nil if rows.empty?
+        lo = rows.map { |r| r[1] }.min - 1.0
+        cons = []
+        rows.each do |co, z, i|
+          cons << [co, z - lo]
+          ce = co.map { |v| -v }
+          ce[k + 1 + i] = 1.0
+          cons << [ce, lo - z]
+        end
+        len = run.map { |b| b[:u1] - b[:u0] }
+        tot = len.sum
+        wt = (0..k).map { |j| ((j > 0 ? len[j - 1] : 0.0) + (j < k ? len[j] : 0.0)) / 2.0 / tot * 0.01 + 1e-6 }
+        y = lp_min(wt + Array.new(k, 1.0), cons)
+        y && y[0..k].map { |v| v + lo }
+      end
+
+      # min c·y  mit  co·y >= r (alle Zeilen), y >= 0, c > 0.
+      # Gelöst über das duale Problem (Simplex, Bland-Regel).
+      def lp_min(c, rows)
+        n = c.size; m = rows.size
+        tab = (0...n).map do |j|
+          rows.map { |co, _| co[j] } + Array.new(n) { |i| i == j ? 1.0 : 0.0 } + [c[j]]
+        end
+        obj = rows.map { |_, r| -r } + Array.new(n + 1, 0.0)
+        basis = (0...n).map { |j| m + j }
+        5000.times do
+          e = (0...m + n).find { |q| obj[q] < -1e-10 }
+          unless e
+            return (0...n).map { |j| obj[m + j] }
+          end
+          best = nil
+          (0...n).each do |i|
+            a = tab[i][e]
+            next if a <= 1e-12
+            rt = tab[i][-1] / a
+            best = [rt, basis[i], i] if best.nil? || rt < best[0] - 1e-12 || (rt < best[0] + 1e-12 && basis[i] < best[1])
+          end
+          return nil unless best
+          r = best[2]
+          pv = tab[r][e]
+          tab[r] = tab[r].map { |v| v / pv }
+          (0...n).each do |i|
+            next if i == r || tab[i][e].abs < 1e-15
+            f = tab[i][e]
+            tab[i] = tab[i].each_with_index.map { |v, q| v - f * tab[r][q] }
+          end
+          f = obj[e]
+          obj = obj.each_with_index.map { |v, q| v - f * tab[r][q] }
+          basis[r] = e
+        end
+        nil
+      end
+
+      # Oberkante eines Profilstücks als zusammenhängende Polylinien
+      def straight_chains(list)
+        chains = []
+        list.each do |b|
+          if chains.empty? || (b[:u0] - chains[-1][-1][:u1]).abs > 0.01
+            chains << [b]
+          else
+            chains[-1] << b
+          end
+        end
+        chains.map do |ch|
+          pts = ch.flat_map { |b| b[:tv] }
+          pts = pts.each_with_object([]) { |q, o| o << q if o.empty? || q[0] - o[-1][0] > 1e-6 }
+          [ch, pts]
+        end
+      end
+
+      # Parallele im Abstand w unter der Polylinie pts (Gehrung an Knicken,
+      # zu kurze Stücke an Innenknicken entfallen)
+      def offset_down(pts, w)
+        segs = pts.each_cons(2).map do |(u0, z0), (u1, z1)|
+          s = (z1 - z0) / (u1 - u0)
+          [s, z0 - s * u0 - w * Math.sqrt(1.0 + s * s)]
+        end
+        # kollineare Stücke zusammenfassen
+        segs = segs.each_with_object([]) { |q, o| o << q unless o[-1] && (o[-1][0] - q[0]).abs < 1e-12 && (o[-1][1] - q[1]).abs < 1e-9 }
+        ua = pts[0][0]; ub = pts[-1][0]
+        loop do
+          vs = [ua]
+          segs.each_cons(2) do |(s1, c1), (s2, c2)|
+            vs << ((s1 - s2).abs < 1e-12 ? vs[-1] : (c2 - c1) / (s1 - s2))
+          end
+          vs << ub
+          bad = (0...segs.size).find { |j| vs[j + 1] < vs[j] - 1e-9 }
+          if bad && segs.size > 1
+            segs.delete_at(bad)
+            next
+          end
+          return vs.each_with_index.map do |u, i|
+            s, c = segs[[i, segs.size - 1].min]
+            s, c = segs[i - 1] if i == segs.size
+            [u, c + s * u]
+          end
+        end
+      end
+
+      def straight_bottom(list, w)
+        straight_chains(list).each do |ch, pts|
+          bl = offset_down(pts, w)
+          ch.each do |b|
+            inr = ->(u) { u > b[:u0] + 0.005 && u < b[:u1] - 0.005 }
+            us = [b[:u0]] + (b[:tv].map(&:first) + bl.map(&:first)).select(&inr) + [b[:u1]]
+            us = us.sort.each_with_object([]) { |u, o| o << u if o.empty? || u - o[-1] > 0.005 }
+            us[-1] = b[:u1]
+            b[:tp] = us.map { |u| [u, interp(b[:tv], u)] }
+            b[:bp] = us.map { |u| [u, interp(bl, u)] }
+            b[:s] = (b[:tp][-1][1] - b[:tp][0][1]) / [b[:u1] - b[:u0], 1e-9].max
+            b[:c] = b[:tp][0][1] - b[:s] * b[:u0]
+          end
+        end
+      end
+
+      # kleinste Brettbreite (auf 0,5 cm gerundet), bei der die Unterkante an
+      # jeder Stufe mindestens den Mindestabstand einhält
+      def straight_need(lists)
+        chains = lists.flat_map { |l| straight_chains(l) }
+        ok = lambda do |w|
+          chains.all? do |ch, pts|
+            bl = offset_down(pts, w)
+            ch.all? do |b|
+              b[:steps].all? do |_k, a, e, zr|
+                us = [a, e] + bl.map(&:first).select { |u| u > a && u < e }
+                us.all? { |u| interp(bl, u) <= zr + 1e-9 }
+              end
+            end
+          end
+        end
+        return 0.0 if ok.(0.0)
+        lo = 0.0; hi = 50.0
+        hi *= 2 until ok.(hi) || hi > 1000
+        40.times do
+          mid = (lo + hi) / 2
+          ok.(mid) ? hi = mid : lo = mid
+        end
+        (hi * 2.0 - 1e-6).ceil / 2.0
       end
 
       def seg_n(b, side)
