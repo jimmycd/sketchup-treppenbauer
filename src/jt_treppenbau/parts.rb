@@ -196,6 +196,7 @@ module JTools
             best = [l, Geo.sub(q2, q)] if best.nil? || l > best[0]
           end
           axis = best[1] if best
+          axis = [mirror ? -sb[:grain][0] : sb[:grain][0], sb[:grain][1]] if sb[:grain]
           axis = Geo.mul(axis, -1) if axis[0] < 0
           rot, = rotation_for(axis)
           pp, = transform_all(poly, [], rot)

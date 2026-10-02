@@ -136,10 +136,11 @@ module JTools
           help: 'Lotrechter Überstand der Wangenoberkante über der Verbindungslinie der Stufenvorderkanten.' },
         { key: 'str_under', label: 'Wange unter Stufenunterkante (mindestens)', type: 'number', default: 4.0, unit: 'cm', group: 'Tragkonstruktion', min: 0, step: 0.5, constr: ['wange'], side: 'wange',
           help: 'Lotrechter Mindestabstand der Wangenunterkante unter der Unterkante jeder Stufe (hinteres Ende des Einstands). Darf größer werden, nie kleiner.' },
-        { key: 'str_form', label: 'Wangenform (Seitenansicht)', type: 'select', default: 'gerade', group: 'Tragkonstruktion', constr: ['wange'], side: 'wange',
+        { key: 'str_form', label: 'Wangenform (Seitenansicht)', type: 'select', default: 'gerade', group: 'Tragkonstruktion', constr: ['wange'], side: %w[wange sattel],
           options: [['gerade', 'gerade Kanten, konstante Breite'], ['kurve', 'geschwungen – Kanten als Kurve, Breite variabel']],
           help: 'Geschwungen: Oberkante exakt um den Überstand über jeder Stufenvorderkante, Unterkante exakt um den Mindestabstand unter jeder Stufe, ' \
-                'beide als knickfreie Kurve je Lauf (gerade Läufe bleiben gerade). Bretter bleiben im Grundriss gerade, Podeste waagerecht.' },
+                'beide als knickfreie Kurve je Lauf (gerade Läufe bleiben gerade). Aufgesattelte Wangen: Unterkante als knickfreie Kurve je Lauf, ' \
+                'an jeder Ausklinkung mindestens die Restbreite. Bretter bleiben im Grundriss gerade, Podeste waagerecht.' },
         { key: 'str_h', label: 'Wangenhöhe (Brettbreite, konstant)', type: 'number', default: 0, unit: 'cm', group: 'Tragkonstruktion', min: 0, step: 0.5, constr: ['wange'], side: 'wange',
           help: '0 = automatisch: kleinste für alle Wangen gleiche Brettbreite, die Überstand oben und Mindestabstand unten einhält. ' \
                 'Gemessen rechtwinklig zur Wangenkante.' },

@@ -196,7 +196,7 @@
 
     set: function (key, val) {
       this.values[key] = val;
-      if (key === 'variant' || key === 'construction') this.updateVisibility();
+      if (/^(variant|construction|side_left|side_right|str_form|risers|rail|show_floor|fit_mode|loch)$/.test(key)) this.updateVisibility();
       this.requestPreview(false);
     },
 
@@ -212,7 +212,8 @@
       if (f.side) {
         if (this.values.construction !== 'wange') return false;
         if (['spindel', 'auge'].indexOf(this.values.variant) >= 0) return false;
-        if (this.values.side_left !== f.side && this.values.side_right !== f.side) return false;
+        var sides = [].concat(f.side);
+        if (sides.indexOf(this.values.side_left) < 0 && sides.indexOf(this.values.side_right) < 0) return false;
       }
       return true;
     },

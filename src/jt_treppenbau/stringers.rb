@@ -24,6 +24,11 @@
 #   * Oberkante sägezahnförmig (Auflager je Stufe, senkrechte Ausklinkung hinter
 #     der Setzstufe bzw. unter der Unterschneidung);
 #   * Unterkante je Brett gerade, sat_rest rechtwinklig unter den inneren Ecken.
+#   Form „geschwungen“ (str_form = 'kurve'): Unterkante je Lauf (zwischen
+#   Podesten) als knickfreie Kurve (monotone kubische Hermite-Interpolation)
+#   durch die inneren Ecken minus sat_rest (rechtwinklig) – gerade Läufe
+#   bleiben gerade, in Wendelbereichen variiert die Breite. An keiner inneren
+#   Ecke weniger als sat_rest; Podestbretter bleiben waagerecht.
 # Koordinaten im abgewickelten Brett: u = Parameter entlang der Begrenzungslinie
 # (cm), z = Höhe (cm).
 
@@ -534,6 +539,7 @@ module JTools
         d = p['tread_t'].to_f
         cut_ext = p['nosing'].to_f + (p['risers'] ? p['riser_t'].to_f : 0.0)
         lw = plan.lines_w
+        curve = p['str_form'] == 'kurve'
         %i[outer inner].each do |which|
           next unless kind(plan, p, which) == 'sattel'
           side = side_of(plan, which)
@@ -589,7 +595,7 @@ module JTools
             next if cs.empty?
             c, s = cs.size == 1 ? [cs[0][1], 0.0] : bottom_line(cs)
             c -= rest * Math.sqrt(1 + s * s)
-            recs << { v0: v0, v1: v1, a: v0, b: v1, cs: cs, f: [c, s], ops: [],
+            recs << { v0: v0, v1: v1, a: v0, b: v1, cs: cs, f: [c, s], ops: [], landing: lk,
                       dir: Geo.norm(Geo.sub(sp.at(v1), sp.at(v0))) }
           end
           # Ecken (Knick zwischen zwei Brettern): stumpfer Stoß ohne
@@ -612,9 +618,10 @@ module JTools
             rb[:a] = rb[:v0] + yb + t / 2.0 * (1.0 + cs_) / sn
             rb[:joint] = ra
           end
+          sat_curve(recs, corners, rest) if curve
           recs.each do |r|
             ra = r[:joint]
-            next unless ra
+            next unless ra && !curve
             vp = r[:a]
             zp = sat_bottom(ra, ra[:b])
             fz = r[:f][0] + r[:f][1] * vp
@@ -650,15 +657,19 @@ module JTools
             end
             top << [r[:v1], ztop_at.(r[:v1], false)] if v1 > r[:v1] + 1e-6
             top << [v1, ztop_at.(r[:v1], false)]
-            lines = [r[:f]] + r[:ops].map { |o| o[1] }
-            us = [v0, v1]
-            lines.combination(2) do |(c1, s1), (c2, s2)|
-              next if (s1 - s2).abs < 1e-12
-              x = (c2 - c1) / (s1 - s2)
-              us << x if x > v0 + 1e-6 && x < v1 - 1e-6
+            if r[:bf]
+              bp = sat_samples(r).map { |v| [v, r[:bf].(v)] }
+            else
+              lines = [r[:f]] + r[:ops].map { |o| o[1] }
+              us = [v0, v1]
+              lines.combination(2) do |(c1, s1), (c2, s2)|
+                next if (s1 - s2).abs < 1e-12
+                x = (c2 - c1) / (s1 - s2)
+                us << x if x > v0 + 1e-6 && x < v1 - 1e-6
+              end
+              us = us.sort
+              bp = us.map { |v| [v, sat_bottom(r, v)] }
             end
-            us = us.sort
-            bp = us.map { |v| [v, sat_bottom(r, v)] }
             bc = [bp[0]]
             bp.each_cons(2) do |(ua, za), (ub, zb)|
               bc << [ua + (ub - ua) * za / (za - zb), 0.0] if (za < 0) != (zb < 0)
@@ -669,10 +680,126 @@ module JTools
             next if poly.size < 3 || Geo.signed_area(poly).abs < 1.0
             no += 1
             o = Geo.add(sp.at(r[:v0]), Geo.mul(r[:dir], v0 - r[:v0]))
-            res[:sattel] << { which: which, side: side, origin: o, dir: r[:dir], len: v1 - v0,
-                              poly: poly, t: t, nr: no }
+            sb = { which: which, side: side, origin: o, dir: r[:dir], len: v1 - v0,
+                   poly: poly, t: t, nr: no }
+            # Faserrichtung entlang der Sehne der Unterkante (geschwungen)
+            sb[:grain] = [v1 - v0, r[:bf].(v1) - r[:bf].(v0)] if r[:bf]
+            res[:sattel] << sb
           end
         end
+      end
+
+      # --- geschwungene aufgesattelte Wange -------------------------------
+
+      # Unterkanten-Funktionen r[:bf] (v -> z) für alle Bretter einer Seite.
+      def sat_curve(recs, corners, rest)
+        runs = []
+        recs.each do |r|
+          if r[:landing] || runs.empty? || runs[-1][-1][:landing] || r[:v0] - runs[-1][-1][:v1] > 1.5
+            runs << [r]
+          else
+            runs[-1] << r
+          end
+        end
+        runs.each do |run|
+          cs = merge_nodes(corners.select { |v, _| v >= run[0][:v0] - 0.01 && v <= run[-1][:v1] + 0.01 }, false)
+          if run[0][:landing] || cs.size < 2
+            run.each do |r|
+              c, s = r[:f]
+              r[:bf] = ->(v) { c + s * v }
+              r[:knots] = []
+            end
+            next
+          end
+          # Knoten: Ecke minus Restbreite (rechtwinklig zur örtlichen Eckenlinie)
+          nodes = cs.each_index.map do |i|
+            a = cs[[i - 1, 0].max]; b = cs[[i + 1, cs.size - 1].min]
+            s = (b[1] - a[1]) / [b[0] - a[0], 1e-9].max
+            [cs[i][0], cs[i][1] - rest * Math.sqrt(1 + s * s)]
+          end
+          # z nicht fallend (Monotonie)
+          (nodes.size - 2).downto(0) { |i| nodes[i][1] = [nodes[i][1], nodes[i + 1][1]].min }
+          f0 = pchip(nodes)
+          drop = 0.0
+          # absenken, bis an jeder Ecke die Restbreite erreicht ist (an steilen
+          # Stellen wächst der rechtwinklige Abstand langsamer als die Absenkung)
+          60.times do
+            f = ->(v) { f0.(v) - drop }
+            dfc = cs.map { |u, z| rest - curve_dist([u, z], f, rest) }.max
+            break if dfc <= 1e-6
+            drop += 1.5 * dfc + 1e-5
+          end
+          fb = ->(v) { f0.(v) - drop }
+          run.each do |r|
+            r[:bf] = fb
+            r[:knots] = nodes.map(&:first)
+          end
+        end
+        # Ecken: Unterkanten an der Stoßstelle angleichen (nur absenken, damit
+        # die Restbreite erhalten bleibt), knickfrei ausgeblendet
+        smooth = ->(t) { t = [[t, 0.0].max, 1.0].min; t * t * (3 - 2 * t) }
+        recs.each do |rb|
+          ra = rb[:joint]
+          next unless ra
+          dz = ra[:bf].(ra[:b]) - rb[:bf].(rb[:a])
+          next if dz.abs < 1e-6
+          if dz > 0
+            f = ra[:bf]; e = ra[:b]; len = [25.0, 0.5 * (ra[:b] - ra[:a])].min
+            ra[:bf] = ->(v) { f.(v) - dz * smooth.((v - e + len) / len) }
+            ra[:knots] += [e - len]
+          else
+            f = rb[:bf]; e = rb[:a]; len = [25.0, 0.5 * (rb[:b] - rb[:a])].min
+            rb[:bf] = ->(v) { f.(v) + dz * (1.0 - smooth.((v - e) / len)) }
+            rb[:knots] += [e + len]
+          end
+        end
+        # Kontrolle mit der tatsächlich gezeichneten Polylinie (Sicherheitsnetz:
+        # sonst alle Unterkanten dieser Seite gleichmäßig absenken)
+        drop = 0.0
+        base = recs.map { |r| r[:bf] }
+        60.times do
+          dfc = 0.0
+          recs.each_with_index do |r, i|
+            f = base[i]
+            pl = sat_samples(r).map { |v| [v, f.(v) - drop] }
+            corners.each do |u, z|
+              next if u < r[:a] - 0.01 || u > r[:b] + 0.01
+              dfc = [dfc, rest - poly_dist([u, z], pl)].max
+            end
+          end
+          break if dfc <= 1e-9
+          drop += 1.5 * dfc + 1e-7
+        end
+        return unless drop > 0
+        recs.each_with_index do |r, i|
+          f = base[i]
+          r[:bf] = ->(v) { f.(v) - drop }
+        end
+      end
+
+      # Stützstellen einer geschwungenen Unterkante (Brettenden, Knoten, alle SAMPLE cm)
+      def sat_samples(r)
+        a = r[:a]; b = r[:b]
+        n = [((b - a) / SAMPLE).ceil, 1].max
+        us = (0..n).map { |i| a + (b - a) * i / n } + r[:knots].select { |u| u > a + 0.005 && u < b - 0.005 }
+        us.sort.each_with_object([]) { |u, o| o << u if o.empty? || u - o[-1] > 0.005 }.tap { |o| o[-1] = b }
+      end
+
+      # kleinster Abstand eines Punkts zur Kurve z = f(v) (fein abgetastet)
+      def curve_dist(pt, f, rest)
+        u = pt[0]; w = 4.0 * rest
+        n = [(2 * w / 0.25).ceil, 2].max
+        poly_dist(pt, (0..n).map { |i| v = u - w + 2 * w * i / n; [v, f.(v)] })
+      end
+
+      def poly_dist(pt, pl)
+        best = 1e9
+        pl.each_cons(2) do |a, b|
+          d = Geo.sub(b, a); l2 = Geo.dot(d, d)
+          t = l2 < 1e-12 ? 0.0 : [[Geo.dot(Geo.sub(pt, a), d) / l2, 0.0].max, 1.0].min
+          best = [best, Geo.dist(pt, Geo.add(a, Geo.mul(d, t)))].min
+        end
+        best
       end
 
       # Unterkante einer aufgesattelten Wange an der Stelle v

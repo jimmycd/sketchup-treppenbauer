@@ -38,13 +38,14 @@ def bottom_at(b, u)
 end
 
 fails = 0; n = 0
+%w[gerade kurve].each do |form|
 Params::NOSPIRAL.each do |v|
   [{}, { 'fit_mode' => 'raum', 'space_l' => 350, 'space_w' => 260, 'angle_left' => 84 },
    { 'fit_mode' => 'raum', 'space_l' => 400, 'space_w' => 300, 'angle_left' => 100, 'angle_right' => 80 }].each do |extra|
     %w[rechts links].each do |dir|
       [true, false].each do |ris|
         p = Params.normalize(Params.defaults.merge('variant' => v, 'direction' => dir, 'risers' => ris,
-                                                   'side_left' => 'sattel', 'side_right' => 'sattel').merge(extra))
+                                                   'side_left' => 'sattel', 'side_right' => 'sattel', 'str_form' => form).merge(extra))
         begin; plan = Layout.compute(p); rescue PlanError => e; next; end
         r = Stringers.compute(plan, p)
         rest = p['sat_rest'].to_f
@@ -67,10 +68,11 @@ Params::NOSPIRAL.each do |v|
         ok = minrest >= rest - 1e-3 && jmax < 0.05 && ov < 0.01
         n += 1
         fails += 1 unless ok
-        puts format('%-14s %-5s %-6s ris=%-5s boards=%2d rest min %.2f fuge %.3f überlappung %.3f %s', v,
+        puts format("%-6s " + '%-14s %-5s %-6s ris=%-5s boards=%2d rest min %.2f fuge %.3f überlappung %.3f %s', form, v,
                     extra.empty? ? 'frei' : "raum#{extra['angle_left']}", dir, ris, r[:sattel].size, minrest == 1e9 ? 0 : minrest, jmax, ov, ok ? 'ok' : 'FEHLER')
       end
     end
   end
+end
 end
 puts "#{n} Fälle, #{fails} Fehler"
