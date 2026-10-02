@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>CNC-Export</title>
+<style>
+  :root { --bg:#f4f2ee; --panel:#fff; --line:#d9d4ca; --text:#2a2723; --muted:#7a736a;
+    --accent:#2f6fb3; --accent2:#245a92; --ok:#2e7d4f; --warn:#b26a00; --err:#b3261e; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text);
+    font:13px/1.35 "Segoe UI", -apple-system, "Helvetica Neue", Arial, sans-serif; }
+  body { display:flex; flex-direction:column; }
+  header { padding:10px 16px; border-bottom:1px solid var(--line); background:var(--panel); display:flex; gap:12px; align-items:baseline; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .sub { color:var(--muted); }
+  main { flex:1; display:flex; min-height:0; }
+  #form { width:400px; min-width:340px; overflow-y:auto; padding:10px 12px 20px; border-right:1px solid var(--line); }
+  #right { flex:1; display:flex; flex-direction:column; min-width:0; }
+  fieldset { border:1px solid var(--line); border-radius:6px; background:var(--panel); margin:0 0 10px; padding:6px 10px 8px; }
+  legend { font-weight:600; padding:0 4px; }
+  .row { display:grid; grid-template-columns:1fr 130px; gap:8px; align-items:center; padding:4px 0; border-top:1px dashed #eee; }
+  .row:first-of-type { border-top:0; }
+  .row .ctl { display:flex; align-items:center; gap:4px; }
+  .row input[type=number], .row select { width:100%; padding:4px 6px; border:1px solid #c8c2b7; border-radius:4px; font:inherit; background:#fff; }
+  .row.wide { grid-template-columns:1fr; }
+  .unit { color:var(--muted); min-width:24px; font-size:12px; }
+  .help { grid-column:1 / -1; color:var(--muted); font-size:11.5px; margin-top:-2px; }
+  .hidden { display:none !important; }
+  #sheets { flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:10px; }
+  .sheet { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:8px 10px; }
+  .sheet h3 { margin:0 0 6px; font-size:13px; display:flex; gap:14px; flex-wrap:wrap; }
+  .sheet h3 span { color:var(--muted); font-weight:400; }
+  .sheet svg { width:100%; height:auto; display:block; }
+  #bottom { display:flex; gap:10px; padding:0 10px 10px; max-height:30%; min-height:120px; }
+  #bottom > div { flex:1; background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:8px 10px; overflow-y:auto; }
+  #bottom h3 { margin:0 0 6px; font-size:13px; }
+  table { border-collapse:collapse; width:100%; }
+  td { padding:2px 4px; border-bottom:1px solid #f0ece5; }
+  td:not(:first-child) { text-align:right; white-space:nowrap; }
+  ul { margin:0; padding-left:18px; }
+  li.w { color:var(--warn); margin-bottom:3px; }
+  li.ok { color:var(--ok); list-style:none; margin-left:-18px; }
+  footer { border-top:1px solid var(--line); background:var(--panel); padding:8px 12px; display:flex; gap:8px; align-items:center; }
+  footer .spacer { flex:1; }
+  #status { color:var(--muted); }
+  #status.err { color:var(--err); } #status.ok { color:var(--ok); }
+  button { font:inherit; padding:6px 14px; border-radius:4px; border:1px solid #b9b2a6; background:#fff; cursor:pointer; }
+  button:hover { background:#f1eee9; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent2); }
+  button.primary:hover { background:var(--accent2); }
+  button.small { padding:3px 8px; font-size:12px; }
+  #busy { position:fixed; right:16px; top:12px; color:var(--accent); font-weight:600; }
+  .legend { font-size:11.5px; color:var(--muted); padding:0 10px 4px; }
+  .legend i { display:inline-block; width:11px; height:11px; vertical-align:-1px; margin:0 3px 0 10px; border:1px solid #888; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CNC-Export</h1>
+  <span class="sub" id="stair">–</span>
+  <span id="busy" class="hidden">berechne …</span>
+</header>
+<main>
+  <div id="form"></div>
+  <div id="right">
+    <div class="legend">Draufsicht Rohplatten (X = Länge = Faserrichtung)
+      <i style="background:#ead4ae"></i>Trittstufe
+      <i style="background:#cfe0ef"></i>Podest
+      <i style="background:#e3c98f"></i>Setzstufe
+      <i style="background:#b98a5a"></i>Wange
+      <i style="background:#6a9d4f"></i>Nut
+      <i style="background:#9a9a9a"></i>Geländer/Pfosten
+    </div>
+    <div id="sheets"></div>
+    <div id="bottom">
+      <div><h3>Übersicht</h3><table id="summary"></table></div>
+      <div><h3>Hinweise</h3><ul id="warnings"></ul></div>
+    </div>
+  </div>
+</main>
+<footer>
+  <span id="status"></span>
+  <span class="spacer"></span>
+  <button id="btnExport" class="primary">TCN exportieren …</button>
+  <button id="btnClose">Schließen</button>
+</footer>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var NS = 'http://www.w3.org/2000/svg';
+  var COL = { tread:'#ead4ae', landing:'#cfe0ef', riser:'#e3c98f', stringer:'#b98a5a', newel:'#a7865f', post:'#9a9a9a', rail:'#8a8a8a' };
+
+  var FIELDS = [
+    { g:'Rohplatte', key:'plate_l', label:'Länge (X, Faserrichtung)', unit:'mm', step:1 },
+    { g:'Rohplatte', key:'plate_w', label:'Breite (Y)', unit:'mm', step:1 },
+    { g:'Rohplatte', key:'margin', label:'Randabstand', unit:'mm', step:1 },
+    { g:'Rohplatte', key:'grain', label:'Faserrichtung beachten', type:'bool',
+      help:'Ein: Teile nur 0°/180° gedreht (Trittstufen quer, Wangen längs zur Faser). Aus: auch 90°/270° – meist weniger Verschnitt.' },
+    { g:'Fräser (wie dxf4tcn)', key:'tool_outer', label:'Fräser Außenkontur', type:'tool' },
+    { g:'Fräser (wie dxf4tcn)', key:'tool_d', label:'Fräserdurchmesser', unit:'mm', step:0.5 },
+    { g:'Fräser (wie dxf4tcn)', key:'gap', label:'Teileabstand', unit:'mm', step:0.5, help:'0 = Fräserdurchmesser + 4 mm' },
+    { g:'Fräser (wie dxf4tcn)', key:'overcut', label:'Durchfräsen (tiefer als Materialstärke)', unit:'mm', step:0.1 },
+    { g:'Fräser (wie dxf4tcn)', key:'climb', label:'Außenkontur im Uhrzeigersinn (Korrektur links)', type:'bool' },
+    { g:'Teile', key:'p_treads', label:'Trittstufen und Podeste', type:'bool', need:'notmassiv' },
+    { g:'Teile', key:'p_risers', label:'Setzstufen', type:'bool', need:'risers' },
+    { g:'Teile', key:'p_stringers', label:'Wangen (abgewickelt, mit Nuten)', type:'bool', need:'wange' },
+    { g:'Teile', key:'p_posts', label:'Geländerpfosten', type:'bool', need:'rail' },
+    { g:'Teile', key:'p_rail', label:'Handlauf (gerade Stücke)', type:'bool', need:'rail' },
+    { g:'Nuten (Einstand in Wange)', key:'einstand', label:'Einstand / Nuttiefe', unit:'mm', step:1, need:'wange',
+      help:'Tritt- und Setzstufen werden um dieses Maß in die Wangen verlängert, die Wangen erhalten passende Nuten. 0 = keine Nuten.' },
+    { g:'Nuten (Einstand in Wange)', key:'pocket_tool', label:'Werkzeug Nutfräser', unit:'Nr', step:1, need:'wange' },
+    { g:'Nuten (Einstand in Wange)', key:'pocket_d', label:'Durchmesser Nutfräser', unit:'mm', step:0.5, need:'wange' },
+    { g:'Gravur Teilenummern', key:'engrave', label:'Teilenummern gravieren', type:'bool',
+      help:'Einstrich-Gravur der Teilenummer (z. B. T5, WA1) – wie die Verzierungen in dxf4tcn mit r0/r1.' },
+    { g:'Gravur Teilenummern', key:'deco_tool', label:'Werkzeug (r0 „werkzeug“)', unit:'Nr', step:1 },
+    { g:'Gravur Teilenummern', key:'deco_depth', label:'Tiefe (r1 „zkontur“)', unit:'mm', step:0.1 },
+    { g:'Gravur Teilenummern', key:'text_h', label:'Schrifthöhe', unit:'mm', step:1 },
+    { g:'Ausgabe', key:'grid', label:'Raster Verschachtelung', unit:'mm', step:1, help:'Kleiner = dichter, aber langsamer (Standard 5 mm).' },
+    { g:'Ausgabe', key:'open_tpa', label:'Erste TCN danach in TpaCAD öffnen', type:'bool' },
+    { g:'Ausgabe', key:'_tpacad', label:'TpaCAD-Programm', type:'tpacad' }
+  ];
+
+  var CNC = window.CNC = {
+    o: {}, ctx: {}, timer: null,
+
+    init: function (d) {
+      this.o = d.opts; this.ctx = d; this.tools = d.tools;
+      $('stair').textContent = d.stair;
+      this.render();
+      this.compute(true);
+    },
+
+    need: function (f) {
+      var c = this.ctx;
+      if (!f.need) return true;
+      if (f.need === 'wange') return c.construction === 'wange';
+      if (f.need === 'notmassiv') return c.construction !== 'massiv';
+      if (f.need === 'risers') return c.construction !== 'massiv' && c.risers;
+      if (f.need === 'rail') return c.rail !== 'keins';
+      return true;
+    },
+
+    render: function () {
+      var form = $('form'), self = this, groups = {}, order = [];
+      form.innerHTML = '';
+      FIELDS.forEach(function (f) {
+        if (!self.need(f)) return;
+        if (!groups[f.g]) { groups[f.g] = []; order.push(f.g); }
+        groups[f.g].push(f);
+      });
+      order.forEach(function (g) {
+        var fs = document.createElement('fieldset');
+        var lg = document.createElement('legend'); lg.textContent = g; fs.appendChild(lg);
+        groups[g].forEach(function (f) { fs.appendChild(self.field(f)); });
+        form.appendChild(fs);
+      });
+    },
+
+    field: function (f) {
+      var self = this, row = document.createElement('div');
+      row.className = 'row' + (f.type === 'tool' || f.type === 'tpacad' ? ' wide' : '');
+      var lab = document.createElement('label'); lab.textContent = f.label; row.appendChild(lab);
+      var ctl = document.createElement('div'); ctl.className = 'ctl';
+      var el;
+      if (f.type === 'tool') {
+        el = document.createElement('select');
+        this.tools.forEach(function (t) { var o = document.createElement('option'); o.value = t.nr; o.textContent = t.name; el.appendChild(o); });
+        el.value = this.o.tool_outer;
+        el.onchange = function () { self.o.tool_outer = parseInt(el.value, 10); self.call('tooldia', self.o.tool_outer); };
+      } else if (f.type === 'tpacad') {
+        el = document.createElement('span'); el.id = 'tpacad';
+        el.textContent = this.ctx.tpacad || '(nicht festgelegt – Windows-Standardprogramm)';
+        el.style.cssText = 'flex:1;color:#7a736a;font-size:12px;word-break:break-all';
+        var b = document.createElement('button'); b.className = 'small'; b.textContent = 'Auswählen …';
+        b.onclick = function () { self.call('tpacad'); };
+        ctl.appendChild(el); ctl.appendChild(b); row.appendChild(ctl);
+        return row;
+      } else if (f.type === 'bool') {
+        el = document.createElement('input'); el.type = 'checkbox'; el.checked = !!this.o[f.key];
+        el.onchange = function () { self.o[f.key] = el.checked; self.compute(); };
+      } else {
+        el = document.createElement('input'); el.type = 'number'; el.step = f.step || 'any'; el.min = 0;
+        el.value = this.o[f.key];
+        var h = function () { var v = parseFloat(String(el.value).replace(',', '.')); if (!isNaN(v)) { self.o[f.key] = v; self.compute(); } };
+        el.oninput = h; el.onchange = h;
+      }
+      el.id = 'f_' + f.key;
+      ctl.appendChild(el);
+      if (f.unit) { var u = document.createElement('span'); u.className = 'unit'; u.textContent = f.unit; ctl.appendChild(u); }
+      row.appendChild(ctl);
+      if (f.help) { var hp = document.createElement('div'); hp.className = 'help'; hp.textContent = f.help; row.appendChild(hp); }
+      return row;
+    },
+
+    setToolDia: function (d) { this.o.tool_d = d; var e = $('f_tool_d'); if (e) e.value = d; this.compute(); },
+    setTpacad: function (p) { var e = $('tpacad'); if (e) e.textContent = p; },
+
+    compute: function (now) {
+      var self = this;
+      clearTimeout(this.timer);
+      this.timer = setTimeout(function () {
+        $('busy').classList.remove('hidden');
+        setTimeout(function () { self.call('compute', JSON.stringify(self.o)); }, 20);
+      }, now ? 0 : 500);
+    },
+
+    call: function (name) {
+      var args = Array.prototype.slice.call(arguments, 1);
+      if (window.sketchup && typeof window.sketchup[name] === 'function') window.sketchup[name].apply(window.sketchup, args);
+      else if (window.CNC_MOCK && window.CNC_MOCK[name]) window.CNC_MOCK[name].apply(null, args);
+    },
+
+    status: function (msg, cls) { var s = $('status'); s.textContent = msg || ''; s.className = cls || ''; },
+
+    onResult: function (r) {
+      $('busy').classList.add('hidden');
+      var box = $('sheets'); box.innerHTML = '';
+      if (!r.ok) { this.status(r.error, 'err'); $('warnings').innerHTML = '<li class="w">' + esc(r.error) + '</li>'; return; }
+      this.status('');
+      var self = this;
+      r.sheets.forEach(function (s) { box.appendChild(self.sheet(s, r.plate, r.margin)); });
+      if (!r.sheets.length) box.innerHTML = '<div class="sheet">Keine Teile ausgewählt.</div>';
+      $('summary').innerHTML = r.summary.map(function (x) {
+        return '<tr><td>' + esc(x[0]) + '</td><td>' + esc(x[1]) + '</td><td>' + esc(x[2]) + '</td></tr>';
+      }).join('');
+      $('warnings').innerHTML = r.warnings.length
+        ? r.warnings.map(function (w) { return '<li class="w">' + esc(w) + '</li>'; }).join('')
+        : '<li class="ok">✔ Alle Teile platziert.</li>';
+    },
+
+    sheet: function (s, plate, margin) {
+      var L = plate[0], W = plate[1];
+      var div = document.createElement('div'); div.className = 'sheet';
+      var rest = Math.max(0, L - s.used);
+      div.innerHTML = '<h3>' + fmt(s.thickness) + ' mm – Platte ' + s.index + ' / ' + s.count +
+        '<span>' + s.parts.length + ' Teile</span><span>Ausnutzung ' + fmt(s.util) + ' %</span>' +
+        '<span>belegt ' + s.used + ' mm · Reststück ' + rest + ' × ' + W + ' mm</span></h3>';
+      var svg = document.createElementNS(NS, 'svg');
+      var pad = Math.max(L, W) * 0.01;
+      svg.setAttribute('viewBox', (-pad) + ' ' + (-pad) + ' ' + (L + 2 * pad) + ' ' + (W + 2 * pad));
+      var el = function (tag, a, parent) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (parent || svg).appendChild(e); return e; };
+      var Y = function (y) { return W - y; };
+      var P = function (pts) { return pts.map(function (q) { return q[0].toFixed(1) + ',' + Y(q[1]).toFixed(1); }).join(' '); };
+      var sw = Math.max(L, W) / 900;
+      el('rect', { x: 0, y: 0, width: L, height: W, fill: '#f7f5f1', stroke: '#555', 'stroke-width': sw * 1.5 });
+      el('rect', { x: margin, y: margin, width: L - 2 * margin, height: W - 2 * margin, fill: 'none', stroke: '#bbb', 'stroke-width': sw, 'stroke-dasharray': (6 * sw) + ',' + (4 * sw) });
+      if (s.used < L) el('rect', { x: s.used, y: 0, width: L - s.used, height: W, fill: '#e3efe0', opacity: 0.6 });
+      var fs = Math.max(L, W) / 70;
+      s.parts.forEach(function (p) {
+        var g = el('g', {});
+        var t = el('title', {}, g); t.textContent = p.label + ' – ' + p.info;
+        el('polygon', { points: P(p.poly), fill: COL[p.kind] || '#ccc', stroke: '#3b2a14', 'stroke-width': sw }, g);
+        p.pockets.forEach(function (pk) { el('polygon', { points: P(pk), fill: '#6a9d4f', opacity: 0.75 }, g); });
+        var xs = p.poly.map(function (q) { return q[0]; }), ys = p.poly.map(function (q) { return q[1]; });
+        var bw = Math.max.apply(null, xs) - Math.min.apply(null, xs), bh = Math.max.apply(null, ys) - Math.min.apply(null, ys);
+        var f = Math.min(fs, bh * 0.7, bw / Math.max(2, p.label.length) * 1.6);
+        if (f > 4) {
+          var cx = (Math.max.apply(null, xs) + Math.min.apply(null, xs)) / 2, cy = (Math.max.apply(null, ys) + Math.min.apply(null, ys)) / 2;
+          var tx = el('text', { x: cx, y: Y(cy) + f * 0.35, 'font-size': f, 'text-anchor': 'middle', fill: '#222',
+            'font-family': 'Segoe UI, Arial, sans-serif', 'paint-order': 'stroke', stroke: '#fff', 'stroke-width': f / 6 }, g);
+          tx.textContent = p.label;
+        }
+      });
+      div.appendChild(svg);
+      return div;
+    }
+  };
+
+  function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
+  function fmt(v) { return String(v).replace('.', ','); }
+
+  $('btnExport').onclick = function () { CNC.call('export', JSON.stringify(CNC.o)); };
+  $('btnClose').onclick = function () { CNC.call('close'); };
+  window.addEventListener('load', function () { CNC.call('ready'); });
+})();
+</script>
+</body>
+</html>

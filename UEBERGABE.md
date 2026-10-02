@@ -1,11 +1,13 @@
-# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 1.5.2, 01.10.2026)
+# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.0.0, 02.10.2026)
 
 ## Was es ist
 SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Export nach TCN (TpaCAD), angelehnt an Jürgens Plugin **dxf4tcn**.
 
 ## Dateien in diesem Ordner (E:\sketchup-treppe)
-- `treppenbau_7.rbz` – aktuelle installierbare Version 1.5.2 (`_1` = 1.1.0 … `_4` = 1.4.0, `_5` = 1.5.0, `_6` = 1.5.1)
-- `treppenbau_quellen_tests_7.zip` – Quellcode (`src/`) + Testskripte (`test/`) Stand 1.5.2 (`_6` = 1.5.1, `_5` = 1.5.0, ohne Nummer = 1.4.0)
+- `treppenbau_9.rbz` – aktuelle installierbare Version 2.0.0 (`_8` = 1.5.3, `_1` = 1.1.0 … `_4` = 1.4.0, `_5` = 1.5.0, `_6` = 1.5.1, `_7` = 1.5.2)
+- `src/` + `test/` – **Arbeitskopie** der Quellen (Stand 2.0.0), wird vom Entwickler-Loader direkt geladen
+- `jt_aa_treppenbau_dev.rb` – Entwickler-Loader (in den SketchUp-Plugins-Ordner kopieren, lädt aus `E:\sketchup-treppe\src`)
+- `treppenbau_quellen_tests_9.zip` – Quellcode + Tests Stand 2.0.0 (`_8` = 1.5.3, `_7` = 1.5.2, `_6` = 1.5.1, `_5` = 1.5.0, ohne Nummer = 1.4.0)
 - `_to_delete/` – Debug-Plots, kann gelöscht werden
 - Referenz dxf4tcn: `E:\sketchup-dxf2tcn\dxf4tcn_1.rbz` (TCN-Format, Werkzeuge), Beispiel `Kirmes 26 Leuchtturm.tcn`
 - Verwandt: `E:\cvs2tcn` (csv2tcn, OpenCutList-Integration)
@@ -28,6 +30,23 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
+
+## Neu in 2.0.0 – Update ohne Deinstallation/Neustart
+- **Ursache vorher:** `main.rb` lud die Untermodule mit `require` → Ruby lädt eine Datei pro Sitzung nur einmal; nach Installation einer neuen .rbz lief bis zum Neustart der alte Code. (Signieren ändert daran nichts.)
+- `main.rb`: Untermodule per `load` (`module_files`, `load_modules`); neue Methode `Treppenbau.reload(quiet:)` lädt Registrierungsdatei + `main.rb` + alle Module neu, schließt offene Dialoge, unterdrückt Konstanten-Warnungen, meldet „alt → neu“ bzw. Fehler (Syntaxfehler → Meldung statt Absturz). Menüs/Toolbar nur einmal angelegt (`file_loaded?` + `@ui_created`).
+- Menü **Erweiterungen › Treppenbau › „Treppenbau neu laden“**.
+- `jt_treppenbau.rb` darf mehrfach laufen: registriert nur einmal, aktualisiert sonst Version/Beschreibung im Erweiterungs-Manager. Führt SketchUp die Datei nach „Erweiterung installieren“ selbst erneut aus, wird automatisch neu geladen (per `UI.start_timer`). Eine zweite Kopie aus anderem Ordner wird übersprungen (erste gewinnt).
+- **Update-Ablauf ab 2.0.0:** Erweiterungs-Manager → „Erweiterung installieren“ → neue .rbz (über die alte, ohne Deinstallation) → ggf. „Treppenbau neu laden“. Einmalig nötig: Installation von 2.0.0 selbst mit Neustart.
+- **Entwicklung:** `jt_aa_treppenbau_dev.rb` in den Plugins-Ordner (`%APPDATA%\SketchUp\SketchUp 20xx\SketchUp\Plugins`) → lädt aus `E:\sketchup-treppe\src` vor der installierten Version; nach Änderungen nur „neu laden“.
+- **Grenzen:** neue Menüpunkte/Buttons/Kontextmenü erst nach Neustart; gelöschte Methoden bleiben bis Neustart im Speicher; Änderung der Oberklasse einer Klasse → Neustart.
+- Test neu: `test/reload_test.rb` (Registrierung, Neuladen, Auto-Neuladen nach Installation, Syntaxfehler, zweite Kopie) – 0 Fehler; build/stringer/sattel/kite/cnc/fit unverändert ohne Fehler.
+- Hinweis: Der Code nutzt `Array#sum` (Ruby 2.4) → tatsächlich SketchUp 2018+, nicht 2017.
+
+## Neu in 1.5.3 – aufgesattelte Wange an Ecken (fehler.md)
+- **Fehler behoben:** Bei gewendelten Treppen (und Podestecken) lagen die Sattelwangen an der Ecke ineinander (beide Bretter bis zur Mittellinienecke, rechtwinklig abgeschnitten) und die Unterkante des oberen Bretts setzte tiefer an als die des unteren.
+- Ecke jetzt **stumpf gestoßen ohne Durchdringung**: unteres Brett läuft bis zur Außenfläche des oberen durch (+ t/2/sin θ), oberes stößt an die Seitenfläche des unteren (Mittellinien-Schnittpunkt, auch wenn ein sehr kurzes Stück dazwischen wegfällt). Bei 90° exakt, bei schrägen Ecken (Raum-Modus) kleine Fuge statt Überlappung.
+- **Unterkante gleich:** das obere Brett beginnt auf der Höhe der Unterkante des unteren Bretts (an dessen Stirnseite). Von dort läuft die Unterkante als Gerade (steilste zulässige) bis zur eigenen Ausgleichsgeraden → ggf. ein Knick in der Unterkante des oberen Bretts. Restbreite `sat_rest` bleibt überall eingehalten. Ist die Höhe für das obere Brett zu hoch, wird das untere Brett am Ende abgesenkt.
+- Code: `stringers.rb` (`sattel`, neu `sat_bottom`, `sat_slope`). Test neu: `test/sattel_test.rb` (88 Fälle: Restbreite, Fuge Unterkante, Überlappung im Grundriss) – 0 Fehler; build/stringer/kite/cnc/fit ohne Fehler.
 
 ## Neu in 1.5.2 – Nuten der eingestemmten Wangen exakt (TCN)
 - **Fehler behoben:** Die Ausfräsungen in den Wangen waren im TCN nur achsparallele Rechtecke (Umriss-Box der gedrehten Nut, Tritt- und Setzstufe getrennt) – passte nicht zur Ausstemmung.
@@ -98,6 +117,6 @@ Alles wurde nur außerhalb von SketchUp geprüft. Erster echter Test steht aus.
 - Test in SketchUp + TpaCAD, Rückmeldung Fräser-Ø und Nutseite der Wangen
 - Gemischte Treppe (Podest + Wendelstufen) fehlt
 - Wangenenden an schräger Austrittswand: im Grundriss schräg, im CNC-Teil rechtwinklig (Gehrung von Hand)
-- Sattelwangen an Ecken stumpf gestoßen (keine Gehrung)
+- Sattelwangen an Ecken stumpf gestoßen (keine Gehrung); Unterkante des oberen Bretts kann an der Ecke einen Knick haben
 - Raum: Treppenloch nur rechteckig/achsparallel; dreiläufig mit nur einer Wand nutzt die Raumgrenze als Anschlag
 - Neue Treppe wird im Ursprung eingefügt (Raum-Modus: Ursprung = vordere linke Raumecke)

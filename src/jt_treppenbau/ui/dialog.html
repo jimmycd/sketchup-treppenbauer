@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Treppenbau</title>
+<style>
+  :root {
+    --bg: #f4f2ee; --panel: #ffffff; --line: #d9d4ca; --text: #2a2723; --muted: #7a736a;
+    --accent: #2f6fb3; --accent2: #245a92; --ok: #2e7d4f; --warn: #b26a00; --err: #b3261e;
+    --tread: #ead4ae; --tread-s: #7b5a2e; --landing: #cfe0ef; --landing-s: #46698c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.35 "Segoe UI", -apple-system, "Helvetica Neue", Arial, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  header { padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+    display: flex; align-items: baseline; gap: 12px; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .mode { color: var(--muted); }
+  main { flex: 1; display: flex; min-height: 0; }
+  #form { width: 430px; min-width: 360px; overflow-y: auto; padding: 10px 12px 20px; border-right: 1px solid var(--line); }
+  #right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  fieldset { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); margin: 0 0 10px; padding: 6px 10px 8px; }
+  legend { font-weight: 600; padding: 0 4px; cursor: pointer; user-select: none; }
+  legend::before { content: "▾ "; color: var(--muted); }
+  fieldset.collapsed legend::before { content: "▸ "; }
+  fieldset.collapsed .row { display: none; }
+  .row { display: grid; grid-template-columns: 1fr 150px; gap: 8px; align-items: center; padding: 4px 0; border-top: 1px dashed #eee; }
+  .row:first-of-type { border-top: 0; }
+  .row label { color: var(--text); }
+  .row .help { grid-column: 1 / -1; color: var(--muted); font-size: 11.5px; margin-top: -2px; }
+  .row .ctl { display: flex; align-items: center; gap: 4px; }
+  .row input[type=number], .row select { width: 100%; padding: 4px 6px; border: 1px solid #c8c2b7; border-radius: 4px; font: inherit; background: #fff; }
+  .row select { width: 100%; }
+  .row.wide { grid-template-columns: 1fr; }
+  .row.wide .ctl select { width: 100%; }
+  .unit { color: var(--muted); min-width: 26px; font-size: 12px; }
+  .auto { color: var(--accent); font-size: 11.5px; grid-column: 1 / -1; margin-top: -2px; }
+  .hidden { display: none !important; }
+  #previewWrap { flex: 1; min-height: 0; padding: 10px; display: flex; }
+  #preview { flex: 1; background: #fff; border: 1px solid var(--line); border-radius: 6px; position: relative; overflow: hidden; }
+  #preview svg { width: 100%; height: 100%; display: block; }
+  #error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
+    color: var(--err); font-weight: 600; padding: 30px; background: rgba(255,255,255,.85); }
+  #details { display: flex; gap: 10px; padding: 0 10px 10px; max-height: 38%; min-height: 150px; }
+  #details > div { flex: 1; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; overflow-y: auto; }
+  #details h3 { margin: 0 0 6px; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; }
+  td { padding: 2px 4px; border-bottom: 1px solid #f0ece5; vertical-align: top; }
+  td:last-child { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  ul { margin: 0; padding-left: 18px; }
+  li.w { color: var(--warn); margin-bottom: 3px; }
+  li.ok { color: var(--ok); list-style: none; margin-left: -18px; }
+  footer { border-top: 1px solid var(--line); background: var(--panel); padding: 8px 12px; display: flex; gap: 8px; align-items: center; }
+  footer .spacer { flex: 1; }
+  #status { color: var(--muted); }
+  #status.err { color: var(--err); }
+  #status.ok { color: var(--ok); }
+  button { font: inherit; padding: 6px 14px; border-radius: 4px; border: 1px solid #b9b2a6; background: #fff; cursor: pointer; }
+  button:hover { background: #f1eee9; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent2); }
+  button.primary:hover { background: var(--accent2); }
+  label.live { display: flex; gap: 5px; align-items: center; color: var(--muted); }
+  .legend { position: absolute; left: 10px; bottom: 8px; font-size: 11px; color: var(--muted); background: rgba(255,255,255,.85); padding: 3px 6px; border-radius: 4px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; vertical-align: -1px; margin: 0 3px 0 8px; border: 1px solid #888; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Treppenbau</h1>
+  <span class="mode" id="mode">Neue Treppe</span>
+</header>
+<main>
+  <div id="form"></div>
+  <div id="right">
+    <div id="previewWrap">
+      <div id="preview">
+        <svg id="svg" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div id="error" class="hidden"></div>
+        <div class="legend">Grundriss · Draufsicht
+          <i style="background:var(--tread)"></i>Stufe
+          <i style="background:var(--landing)"></i>Podest
+          <i style="background:#c0392b;height:2px;border:0;vertical-align:3px"></i>Gehlinie
+        </div>
+      </div>
+    </div>
+    <div id="details">
+      <div><h3>Berechnete Werte</h3><table id="info"></table></div>
+      <div><h3>Prüfung (Richtwerte DIN 18065)</h3><ul id="warnings"></ul></div>
+    </div>
+  </div>
+</main>
+<footer>
+  <button id="btnDefaults" title="Alle Parameter auf Standardwerte zurücksetzen">Standardwerte</button>
+  <label class="live hidden" id="liveWrap"><input type="checkbox" id="live"> Modell live aktualisieren</label>
+  <span id="status"></span>
+  <span class="spacer"></span>
+  <button id="btnApply" class="primary">Erstellen</button>
+  <button id="btnOk">OK</button>
+  <button id="btnClose">Schließen</button>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var SVGNS = 'http://www.w3.org/2000/svg';
+
+  var TB = window.TB = {
+    schema: [], defaults: {}, values: {}, mode: 'new', timer: null, collapsed: {},
+
+    init: function (data) {
+      this.schema = data.schema;
+      this.defaults = data.defaults;
+      this.values = Object.assign({}, data.defaults, data.params || {});
+      this.setMode(data.mode, data.name);
+      this.render();
+      this.requestPreview(true);
+    },
+
+    setMode: function (mode, name) {
+      this.mode = mode;
+      $('mode').textContent = mode === 'edit' ? ('Treppe bearbeiten' + (name ? ' – ' + name : '')) : 'Neue Treppe';
+      $('btnApply').textContent = mode === 'edit' ? 'Übernehmen' : 'Erstellen';
+      $('liveWrap').classList.toggle('hidden', mode !== 'edit');
+    },
+
+    render: function () {
+      var form = $('form'), self = this;
+      form.innerHTML = '';
+      var groups = {}, order = [];
+      this.schema.forEach(function (f) {
+        if (!groups[f.group]) { groups[f.group] = []; order.push(f.group); }
+        groups[f.group].push(f);
+      });
+      order.forEach(function (g) {
+        var fs = document.createElement('fieldset');
+        fs.dataset.group = g;
+        if (self.collapsed[g]) fs.classList.add('collapsed');
+        var lg = document.createElement('legend');
+        lg.textContent = g;
+        lg.onclick = function () { fs.classList.toggle('collapsed'); self.collapsed[g] = fs.classList.contains('collapsed'); };
+        fs.appendChild(lg);
+        groups[g].forEach(function (f) { fs.appendChild(self.field(f)); });
+        form.appendChild(fs);
+      });
+      this.updateVisibility();
+    },
+
+    field: function (f) {
+      var self = this;
+      var row = document.createElement('div');
+      row.className = 'row' + (f.type === 'select' ? ' wide' : '');
+      row.dataset.key = f.key;
+      var lab = document.createElement('label');
+      lab.textContent = f.label;
+      lab.htmlFor = 'f_' + f.key;
+      row.appendChild(lab);
+      var ctl = document.createElement('div');
+      ctl.className = 'ctl';
+      var el;
+      if (f.type === 'select') {
+        el = document.createElement('select');
+        f.options.forEach(function (o) {
+          var op = document.createElement('option');
+          op.value = o[0]; op.textContent = o[1];
+          el.appendChild(op);
+        });
+        el.value = this.values[f.key];
+        el.onchange = function () { self.set(f.key, el.value); };
+      } else if (f.type === 'bool') {
+        el = document.createElement('input');
+        el.type = 'checkbox';
+        el.checked = !!this.values[f.key];
+        el.onchange = function () { self.set(f.key, el.checked); };
+      } else {
+        el = document.createElement('input');
+        el.type = 'number';
+        if (f.min !== undefined && f.min !== null) el.min = f.min;
+        if (f.max !== undefined && f.max !== null) el.max = f.max;
+        el.step = f.step || 'any';
+        el.value = this.values[f.key];
+        var h = function () { var v = parseFloat(String(el.value).replace(',', '.')); if (!isNaN(v)) self.set(f.key, v); };
+        el.oninput = h; el.onchange = h;
+      }
+      el.id = 'f_' + f.key;
+      ctl.appendChild(el);
+      if (f.unit) { var u = document.createElement('span'); u.className = 'unit'; u.textContent = f.unit; ctl.appendChild(u); }
+      row.appendChild(ctl);
+      if (f.key === 'n_steps' || f.key === 'a_user') {
+        var au = document.createElement('div'); au.className = 'auto'; au.id = 'auto_' + f.key; row.appendChild(au);
+      }
+      if (f.help) { var hp = document.createElement('div'); hp.className = 'help'; hp.textContent = f.help; row.appendChild(hp); }
+      return row;
+    },
+
+    set: function (key, val) {
+      this.values[key] = val;
+      if (key === 'variant' || key === 'construction') this.updateVisibility();
+      this.requestPreview(false);
+    },
+
+    visible: function (f) {
+      if (f.variants && f.variants.indexOf(this.values.variant) < 0) return false;
+      if (f.constr && f.constr.indexOf(this.values.construction) < 0) return false;
+      if (f.key === 'riser_t' && !this.values.risers) return false;
+      if (f.key === 'str_h' && this.values.str_form === 'kurve') return false;
+      if (/^(rail_h|rail_d|post_every|post_s|rail_inset)$/.test(f.key) && this.values.rail === 'keins') return false;
+      if (f.key === 'floor_t' && !this.values.show_floor) return false;
+      if (f.fitonly && this.values.fit_mode !== 'raum') return false;
+      if (f.lochonly && !this.values.loch) return false;
+      if (f.side) {
+        if (this.values.construction !== 'wange') return false;
+        if (['spindel', 'auge'].indexOf(this.values.variant) >= 0) return false;
+        if (this.values.side_left !== f.side && this.values.side_right !== f.side) return false;
+      }
+      return true;
+    },
+
+    updateVisibility: function () {
+      var self = this;
+      this.schema.forEach(function (f) {
+        var row = document.querySelector('.row[data-key="' + f.key + '"]');
+        if (row) row.classList.toggle('hidden', !self.visible(f));
+      });
+      document.querySelectorAll('fieldset').forEach(function (fs) {
+        var any = fs.querySelectorAll('.row:not(.hidden)').length > 0;
+        fs.classList.toggle('hidden', !any);
+      });
+    },
+
+    requestPreview: function (now) {
+      var self = this;
+      clearTimeout(this.timer);
+      this.updateVisibility();
+      this.timer = setTimeout(function () {
+        var live = self.mode === 'edit' && $('live').checked;
+        self.call('preview', JSON.stringify(self.values), live);
+      }, now ? 0 : 250);
+    },
+
+    call: function (name) {
+      var args = Array.prototype.slice.call(arguments, 1);
+      if (window.sketchup && typeof window.sketchup[name] === 'function') {
+        window.sketchup[name].apply(window.sketchup, args);
+      } else if (window.TB_MOCK && window.TB_MOCK[name]) {
+        window.TB_MOCK[name].apply(null, args);
+      }
+    },
+
+    onPreview: function (res) {
+      var err = $('error');
+      if (!res.ok) {
+        err.textContent = res.error; err.classList.remove('hidden');
+        $('info').innerHTML = '';
+        $('warnings').innerHTML = '<li class="w">' + esc(res.error) + '</li>';
+        return;
+      }
+      err.classList.add('hidden');
+      this.draw(res.plan);
+      $('info').innerHTML = res.info.map(function (r) { return '<tr><td>' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td></tr>'; }).join('');
+      $('warnings').innerHTML = res.warnings.length
+        ? res.warnings.map(function (w) { return '<li class="w">' + esc(w) + '</li>'; }).join('')
+        : '<li class="ok">✔ Alle geprüften Richtwerte eingehalten.</li>';
+      var d = res.derived || {};
+      var an = $('auto_n_steps'), aa = $('auto_a_user');
+      if (an) an.textContent = 'aktuell: ' + d.n_steps + ' Steigungen à ' + d.h + ' cm';
+      if (aa) aa.textContent = 'aktuell: ' + d.a_user + ' cm';
+      if (res.applied) this.status('Modell aktualisiert.', 'ok');
+    },
+
+    onApplied: function (res) {
+      if (res.ok) {
+        this.setMode('edit');
+        this.status(res.message, 'ok');
+      } else {
+        this.status(res.error, 'err');
+      }
+    },
+
+    status: function (msg, cls) {
+      var s = $('status');
+      s.textContent = msg || '';
+      s.className = cls || '';
+    },
+
+    // ---- Grundriss zeichnen --------------------------------------------
+    draw: function (plan) {
+      var svg = $('svg');
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+      var pts = [].concat(plan.outer, plan.inner);
+      plan.treads.forEach(function (t) { pts = pts.concat(t.pts); });
+      var sxs = pts.map(function (p) { return p[0]; }), sys = pts.map(function (p) { return p[1]; });
+      var sx0 = Math.min.apply(null, sxs), sx1 = Math.max.apply(null, sxs);
+      var sy0 = Math.min.apply(null, sys), sy1 = Math.max.apply(null, sys);
+      if (plan.space) { pts = pts.concat(plan.space.poly); }
+      var xs = pts.map(function (p) { return p[0]; }), ys = pts.map(function (p) { return p[1]; });
+      var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
+      var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+      var pad = Math.max(x1 - x0, y1 - y0) * 0.12 + 20;
+      var W = x1 - x0 + 2 * pad, H = y1 - y0 + 2 * pad;
+      svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+      svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      var T = function (p) { return [(p[0] - x0 + pad), (y1 - p[1] + pad)]; };
+      var P = function (arr) { return arr.map(function (p) { var q = T(p); return q[0].toFixed(2) + ',' + q[1].toFixed(2); }).join(' '); };
+      var S = Math.max(W, H) / 600; // Strichstärken-Skalierung
+      var el = function (tag, attrs, parent) {
+        var e = document.createElementNS(SVGNS, tag);
+        for (var k in attrs) e.setAttribute(k, attrs[k]);
+        (parent || svg).appendChild(e);
+        return e;
+      };
+      var defs = el('defs', {});
+      var mk = el('marker', { id: 'arr', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, defs);
+      el('path', { d: 'M0,0 L10,5 L0,10 z', fill: '#c0392b' }, mk);
+      var mk2 = el('marker', { id: 'dim', viewBox: '0 0 10 10', refX: 5, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto-start-reverse' }, defs);
+      el('path', { d: 'M0,0 L10,5 L0,10 z', fill: '#666' }, mk2);
+
+      // Stufen (Reihenfolge: von oben nach unten zeichnen, damit untere Stufen sichtbar bleiben)
+      var fs = Math.max(6, Math.min(14, (W + H) / 90));
+      plan.treads.slice().reverse().forEach(function (t) {
+        var land = t.kind === 'landing';
+        el('polygon', { points: P(t.pts), fill: land ? '#cfe0ef' : '#ead4ae',
+          stroke: land ? '#46698c' : '#7b5a2e', 'stroke-width': 0.9 * S, 'stroke-linejoin': 'round' });
+      });
+      if (plan.spiral && plan.spiral.spindle) {
+        var c = T([0, 0]);
+        el('circle', { cx: c[0], cy: c[1], r: plan.spiral.r_in, fill: '#777', stroke: '#444', 'stroke-width': S });
+      }
+      // Begrenzungen
+      el('polyline', { points: P(plan.outer), fill: 'none', stroke: '#3b2a14', 'stroke-width': 2 * S });
+      if (plan.inner.length > 1) el('polyline', { points: P(plan.inner), fill: 'none', stroke: '#3b2a14', 'stroke-width': 2 * S });
+      // Gehlinie
+      el('polyline', { points: P(plan.walk), fill: 'none', stroke: '#c0392b', 'stroke-width': 1.3 * S,
+        'stroke-dasharray': (6 * S) + ',' + (4 * S), 'marker-end': 'url(#arr)' });
+      var w0 = T(plan.walk[0]);
+      el('circle', { cx: w0[0], cy: w0[1], r: 3.5 * S, fill: '#fff', stroke: '#c0392b', 'stroke-width': 1.3 * S });
+      // Nummern
+      plan.treads.forEach(function (t) {
+        var q = T(t.label);
+        var tx = el('text', { x: q[0], y: q[1] - 1.5 * S, 'font-size': fs, 'text-anchor': 'middle', fill: '#333',
+          'font-family': 'Segoe UI, Arial, sans-serif', 'paint-order': 'stroke', stroke: '#fff', 'stroke-width': 2.5 * S });
+        tx.textContent = t.kind === 'landing' ? 'P' : String(t.nr);
+      });
+      // Raum (Platzvorgabe) und Treppenloch
+      if (plan.space) {
+        var sp = plan.space, poly = sp.poly;
+        // Wände als dicke Linien, Raumgrenzen ohne Wand gestrichelt
+        var segWall = [sp.walls.left, sp.walls.back, sp.walls.right, false]; // poly: vorn-links, hinten-links, hinten-rechts, vorn-rechts
+        for (var i = 0; i < 4; i++) {
+          var a = T(poly[i]), b = T(poly[(i + 1) % 4]);
+          var wall = segWall[i];
+          el('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: wall ? '#555' : '#2f6fb3',
+            'stroke-width': (wall ? 5 : 1.5) * S, 'stroke-dasharray': wall ? 'none' : (8 * S) + ',' + (5 * S), 'stroke-linecap': 'square' });
+        }
+        if (sp.loch) {
+          el('polygon', { points: P(sp.loch), fill: 'rgba(46,125,79,0.10)', stroke: '#2e7d4f', 'stroke-width': 1.5 * S,
+            'stroke-dasharray': (6 * S) + ',' + (3 * S) });
+          var lcx = 0, lcy = 0; sp.loch.forEach(function (q) { lcx += q[0] / 4; lcy += q[1] / 4; });
+          var lc = T([lcx, lcy]);
+          var lt = el('text', { x: lc[0], y: lc[1], 'font-size': fs * 0.9, fill: '#2e7d4f', 'text-anchor': 'middle',
+            'paint-order': 'stroke', stroke: '#fff', 'stroke-width': 2.5 * S });
+          lt.textContent = 'Treppenloch';
+        }
+        var r1 = T(poly[1]);
+        var st = el('text', { x: r1[0] + 4 * S, y: r1[1] - 6 * S, 'font-size': fs, fill: '#2f6fb3' });
+        st.textContent = 'Raum';
+      }
+      // Gesamtmaße
+      var dimCol = '#666';
+      var ya = y0 - pad * 0.45, xa = x1 + pad * 0.45;
+      var a1 = T([sx0, ya]), a2 = T([sx1, ya]);
+      el('line', { x1: a1[0], y1: a1[1], x2: a2[0], y2: a2[1], stroke: dimCol, 'stroke-width': S, 'marker-start': 'url(#dim)', 'marker-end': 'url(#dim)' });
+      var t1 = el('text', { x: (a1[0] + a2[0]) / 2, y: a1[1] + fs * 1.2, 'font-size': fs, 'text-anchor': 'middle', fill: dimCol });
+      t1.textContent = (sx1 - sx0).toFixed(1) + ' cm';
+      var b1 = T([xa, sy0]), b2 = T([xa, sy1]);
+      el('line', { x1: b1[0], y1: b1[1], x2: b2[0], y2: b2[1], stroke: dimCol, 'stroke-width': S, 'marker-start': 'url(#dim)', 'marker-end': 'url(#dim)' });
+      var t2 = el('text', { x: b1[0] + fs * 0.6, y: (b1[1] + b2[1]) / 2, 'font-size': fs, fill: dimCol,
+        transform: 'rotate(90 ' + (b1[0] + fs * 0.6) + ' ' + ((b1[1] + b2[1]) / 2) + ')', 'text-anchor': 'middle' });
+      t2.textContent = (sy1 - sy0).toFixed(1) + ' cm';
+    }
+  };
+
+  function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
+
+  $('btnApply').onclick = function () { TB.call('apply', JSON.stringify(TB.values), false); };
+  $('btnOk').onclick = function () { TB.call('apply', JSON.stringify(TB.values), true); };
+  $('btnClose').onclick = function () { TB.call('close'); };
+  $('btnDefaults').onclick = function () {
+    var keep = { variant: TB.values.variant };
+    TB.values = Object.assign({}, TB.defaults, keep);
+    TB.render();
+    TB.requestPreview(true);
+  };
+  $('live').onchange = function () { if (this.checked) TB.requestPreview(true); };
+
+  window.addEventListener('load', function () { TB.call('ready'); });
+})();
+</script>
+</body>
+</html>
