@@ -36,7 +36,8 @@ fails = 0; total = 0
 ROOMS = { 'gerade'=>[420,100], 'gerade_podest'=>[520,100], 'l_podest'=>[300,280], 'l_wendel'=>[270,250],
   'u_podest'=>[290,210], 'u_wendel'=>[240,210], 'z_podest'=>[220,300], 'z_wendel'=>[220,260], 'spindel'=>[180,180], 'auge'=>[200,200] }
 Params::ALL.each do |v|
- [{}, {'fit_mode'=>'raum','space_l'=>ROOMS[v][0],'space_w'=>ROOMS[v][1],'angle_left'=>86,'angle_right'=>93, 'show_floor'=>true}].each do |room|
+ [{}, {'fit_mode'=>'raum','space_l'=>ROOMS[v][0],'space_w'=>ROOMS[v][1],'angle_left'=>86,'angle_right'=>93, 'show_floor'=>true},
+  {'total_l'=>ROOMS[v][0],'total_w'=>ROOMS[v][1]}].each do |room|
   [['wange', 'wange', 'wange'], ['wangeK', 'wange', 'wange'], ['wange', 'sattel', 'frei'], ['wange', 'wange', 'sattel'], ['holm', nil, nil], ['massiv', nil, nil]].each do |c, sl, sr|
     [['rechts', true, 'beide'], ['links', false, 'aussen']].each do |dir, ris, rail|
       form = c == 'wangeK' ? 'kurve' : 'gerade'

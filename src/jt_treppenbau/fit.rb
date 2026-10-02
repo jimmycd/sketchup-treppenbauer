@@ -94,6 +94,90 @@ module JTools
         { left: p['wall_left'], right: p['wall_right'], back: p['wall_back'] }
       end
 
+      # --- Freie Planung mit Grundmaß (Gesamtbreite / Gesamttiefe) -------------
+      # Die Treppe wird wie in einen Raum mit drei Wänden ohne Spiel eingepasst:
+      # Breite = Abstand linke–rechte Wand, Tiefe = fester Antritt (vorderste
+      # Stufenkante bis Rückseite). Fehlt ein Maß, ergibt es sich wie bisher aus
+      # den Parametern. Ursprung = vordere linke Ecke des Grundmaßes.
+      BOX_FREE_L = 5000.0
+
+      def box_active?(p)
+        p['fit_mode'] != 'raum' && !Params::SPIRAL.include?(p['variant']) &&
+          (p['total_w'].to_f > 0 || p['total_l'].to_f > 0)
+      end
+
+      def solve_box(p)
+        tw = p['total_w'].to_f
+        tl = p['total_l'].to_f
+        if tw <= 0
+          nat = Layout.compute(p.merge('total_w' => 0.0, 'total_l' => 0.0))
+          x0, _y0, x1, _y1 = footprint(nat, p)
+          tw = x1 - x0
+        end
+        q = p.merge('fit_mode' => 'raum', 'space_w' => tw, 'wall_left' => true, 'wall_right' => true,
+                    'wall_back' => true, 'wall_gap' => 0.0, 'angle_left' => 90.0, 'angle_right' => 90.0,
+                    'loch' => false, 'eye_z' => 0.0, '_box' => true)
+        if tl <= 0
+          # Tiefe frei: Antritt aus dem Steigungsverhältnis, danach mit dem
+          # gefundenen Antritt und der tatsächlichen Tiefe exakt neu rechnen
+          pl = box_room(q.merge('space_l' => BOX_FREE_L, 'antritt_l' => 0.0))
+          l0 = pl.line(0.0)
+          y_ant = [l0[:in][1], l0[:out][1]].min
+          y_min = [footprint(pl, p)[1], y_ant].min
+          tl = BOX_FREE_L - y_min
+          plan = box_room(q.merge('space_l' => tl, 'antritt_l' => BOX_FREE_L - y_ant))
+        else
+          plan = box_room(q.merge('space_l' => tl, 'antritt_l' => tl))
+        end
+        box_report(plan, p, tw, tl)
+        plan.space = { poly: [[0.0, 0.0], [0.0, tl], [tw, tl], [tw, 0.0]], loch: nil,
+                       walls: { left: false, right: false, back: false }, box: true, label: 'Grundmaß' }
+        plan.params = p
+        plan
+      end
+
+      def box_room(q)
+        Room.new(q).solve
+      rescue PlanError => e
+        raise PlanError, box_msg(e.message)
+      end
+
+      def box_msg(m)
+        m.gsub('nicht in den Raum', 'nicht in das Grundmaß (Gesamtbreite × Gesamttiefe)')
+         .gsub('Raumlänge', 'Gesamttiefe').gsub('Raumbreite', 'Gesamtbreite')
+         .gsub('über eine Wand bzw. Raumgrenze', 'über das Grundmaß hinaus')
+         .gsub('Raum zu schmal', 'Gesamtbreite zu schmal').gsub('Treppenloch bzw. Raum', 'Grundmaß')
+         .gsub('Raumgeometrie', 'Geometrie').gsub('dem Raum', 'dem Grundmaß').gsub('den Raum', 'das Grundmaß')
+      end
+
+      # Raumbezogene Angaben durch Grundmaß-Angaben ersetzen
+      def box_report(plan, p, tw, tl)
+        drop = ['Antritt: Abstand von hinterer Wand', 'Platzbedarf in der Länge', 'Luft zu den Wänden', 'Austritt an', 'Wandwinkel']
+        info = plan.info.reject { |k, _| drop.any? { |d| k.start_with?(d) } }
+        info = info.map do |k, v|
+          if k == 'Eingepasst: Laufbreite' then ['Laufbreite', v]
+          elsif k.start_with?('Podest verlängert um') then ['Podest verlängert um (Grundmaß ausgenutzt)', v]
+          else [k, v]
+          end
+        end
+        x0, y0, x1, y1 = footprint(plan, p)
+        src = ->(k) { p[k].to_f > 0 ? 'vorgegeben' : 'aus Parametern' }
+        info.unshift(['Grundmaß Breite × Tiefe', format('%.1f × %.1f cm (Breite %s, Tiefe %s)', tw, tl, src.('total_w'), src.('total_l'))])
+        if (x1 - x0 - tw).abs > 0.1 || (y1 - y0 - tl).abs > 0.1
+          info.insert(1, ['Tatsächlicher Umriss inkl. Wangen', format('%.1f × %.1f cm', x1 - x0, y1 - y0)])
+        end
+        plan.info = info
+        plan.warnings.map! do |w|
+          w.sub(/\AZwischen Treppe und Wand (\w+) bleiben ([\d.]+) cm Luft\.\z/) do
+            "Grundmaß #{$1}: die Treppe füllt #{$2} cm nicht aus."
+          end.sub(/\AAntritt um ([\d.]+) cm nach hinten verschoben, (.*) \(fester Antritt und Austritt.*\z/) do
+            "Gesamttiefe wird um #{$1} cm nicht ausgefüllt (Antritt liegt weiter hinten), #{$2} – Steigungsanzahl, Auftritt oder Gesamttiefe ändern."
+          end.sub(/\AAntritt um ([\d.]+) cm nach vorn verschoben, (.*) \(fester Antritt und Austritt.*\z/) do
+            "Gesamttiefe wird um #{$1} cm überschritten (Antritt liegt weiter vorn), #{$2} – Steigungsanzahl, Auftritt oder Gesamttiefe ändern."
+          end
+        end
+      end
+
       # ======================================================================
       class Room
         include Geo
@@ -817,7 +901,8 @@ module JTools
             end
             @luft[k] = dmin - g(k)
           end
-          if pts.map(&:last).min < -TOL && @y_fix.nil?
+          # Grundmaß (_box): auch bei festem Antritt darf nichts vorn überstehen (U/dreiläufig: Austrittslauf)
+          if pts.map(&:last).min < -TOL && (@y_fix.nil? || @p['_box'])
             @fails << 'Treppe ist zu lang für die Raumlänge.'
             return false
           end

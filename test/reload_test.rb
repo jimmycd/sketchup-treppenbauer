@@ -59,6 +59,7 @@ def check(c, m); unless c; $err += 1; puts "FEHLER: #{m}"; end; end
 src = File.expand_path('../src', __dir__)
 plugins = Dir.mktmpdir('plugins')
 inst = File.join(plugins, 'jt_treppenbau.rb')
+V0 = File.read(File.join(src, 'jt_treppenbau.rb'))[/EXT_VERSION = '([\d.]+)'/, 1] # aktuelle Version
 FileUtils.cp_r(Dir[File.join(src, 'jt_treppenbau*')], plugins)
 
 # 1) Start mit installierter Version
@@ -67,27 +68,27 @@ T = JTools::Treppenbau
 check $log[:register] == 1, 'einmal registriert'
 check T.respond_to?(:cmd_new), 'main geladen'
 check $log[:submenu] == 1 && $log[:toolbar] == 1, 'Menü/Toolbar einmal'
-check T::EXT_VERSION == '2.0.0', 'Version'
+check T::EXT_VERSION == "#{V0}", 'Version'
 
 # 2) Neue Version auf Platte (Installation drüber), Code ändert sich
-File.write(inst, File.read(inst).sub("'2.0.0'", "'2.0.1'"))
+File.write(inst, File.read(inst).sub("'#{V0}'", "'#{V0}.1'"))
 pf = File.join(plugins, 'jt_treppenbau', 'params.rb')
 File.write(pf, File.read(pf).sub(/(module Params\n)/, "\\1      def self.reload_marker; 42; end\n"))
 check !T::Params.respond_to?(:reload_marker), 'vorher alt'
 $menu_blocks.last.call # Menü „Treppenbau neu laden“
-check T::EXT_VERSION == '2.0.1', "Version nach Neuladen (#{T::EXT_VERSION})"
+check T::EXT_VERSION == "#{V0}.1", "Version nach Neuladen (#{T::EXT_VERSION})"
 check T::Params.respond_to?(:reload_marker) && T::Params.reload_marker == 42, 'neuer Code aktiv'
-check T.extension.version == '2.0.1', 'Erweiterungs-Manager zeigt neue Version'
+check T.extension.version == "#{V0}.1", 'Erweiterungs-Manager zeigt neue Version'
 check $log[:register] == 1, 'nicht doppelt registriert'
 check $log[:submenu] == 1 && $log[:toolbar] == 1 && $log[:ctx] == 1, 'keine doppelten Menüs/Toolbars'
-check $last_msg.include?('2.0.0 → 2.0.1'), "Meldung: #{$last_msg}"
+check $last_msg.include?("#{V0} → #{V0}.1"), "Meldung: #{$last_msg}"
 
 # 3) SketchUp führt die Registrierungsdatei nach Installation selbst erneut aus → Auto-Neuladen
-File.write(inst, File.read(inst).sub("'2.0.1'", "'2.0.2'"))
+File.write(inst, File.read(inst).sub("'#{V0}.1'", "'#{V0}.2'"))
 load inst
 check $timers.size == 1, 'Auto-Neuladen geplant'
 $timers.shift.call
-check T::EXT_VERSION == '2.0.2' && $last_msg.include?('2.0.1 → 2.0.2'), "Auto-Neuladen: #{$last_msg}"
+check T::EXT_VERSION == "#{V0}.2" && $last_msg.include?("#{V0}.1 → #{V0}.2"), "Auto-Neuladen: #{$last_msg}"
 check $timers.empty?, 'keine Schleife'
 
 # 4) Fehler im neuen Code → Meldung, kein Absturz
@@ -100,9 +101,9 @@ check T.reload(quiet: true) == true, 'danach wieder ok'
 # 5) Zweite Kopie (Entwickler-Loader zuerst geladen, installierte danach) wird übersprungen
 other = Dir.mktmpdir('other')
 FileUtils.cp_r(Dir[File.join(src, 'jt_treppenbau*')], other)
-File.write(File.join(other, 'jt_treppenbau.rb'), File.read(File.join(other, 'jt_treppenbau.rb')).sub("'2.0.0'", "'9.9.9'"))
+File.write(File.join(other, 'jt_treppenbau.rb'), File.read(File.join(other, 'jt_treppenbau.rb')).sub("'#{V0}'", "'9.9.9'"))
 load File.join(other, 'jt_treppenbau.rb')
-check T::EXT_VERSION == '2.0.2' && $log[:register] == 1, 'fremde Kopie übersprungen'
+check T::EXT_VERSION == "#{V0}.2" && $log[:register] == 1, 'fremde Kopie übersprungen'
 
 puts "reload_test: #{$err} Fehler"
 exit($err.zero? ? 0 : 1)

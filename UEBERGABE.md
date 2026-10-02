@@ -1,11 +1,11 @@
-# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.0.0, 02.10.2026)
+# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.3.0, 02.10.2026)
 
 ## Was es ist
 SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Export nach TCN (TpaCAD), angelehnt an Jürgens Plugin **dxf4tcn**.
 
 ## Dateien in diesem Ordner (E:\sketchup-treppe)
-- `treppenbau_9.rbz` – aktuelle installierbare Version 2.0.0 (`_8` = 1.5.3, `_1` = 1.1.0 … `_4` = 1.4.0, `_5` = 1.5.0, `_6` = 1.5.1, `_7` = 1.5.2)
-- `src/` + `test/` – **Arbeitskopie** der Quellen (Stand 2.0.0), wird vom Entwickler-Loader direkt geladen
+- `treppenbau_2.3.0.rbz` – aktuelle installierbare Version 2.3.0 (ab jetzt Versionsnummer im Dateinamen; `_9` = 2.0.0, `_8` = 1.5.3, `_1` = 1.1.0 … `_4` = 1.4.0, `_5` = 1.5.0, `_6` = 1.5.1, `_7` = 1.5.2)
+- `src/` + `test/` – **Arbeitskopie** der Quellen (Stand 2.3.0), wird vom Entwickler-Loader direkt geladen
 - `jt_aa_treppenbau_dev.rb` – Entwickler-Loader (in den SketchUp-Plugins-Ordner kopieren, lädt aus `E:\sketchup-treppe\src`)
 - `treppenbau_quellen_tests_9.zip` – Quellcode + Tests Stand 2.0.0 (`_8` = 1.5.3, `_7` = 1.5.2, `_6` = 1.5.1, `_5` = 1.5.0, ohne Nummer = 1.4.0)
 - `_to_delete/` – Debug-Plots, kann gelöscht werden
@@ -31,12 +31,24 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
 
-## Nach 2.0.0 – Stöße der eingestemmten Wange bündig (fehler.md Nr. 2)
+## Version 2.3.0 (treppenbau_2.3.0.rbz)
+- Enthält fehler.md Nr. 1 (Wangenform geschwungen auch für aufgesattelte Wangen), Nr. 2 und Nr. 3. Update ohne Deinstallation: Erweiterungs-Manager → „Erweiterung installieren“ → .rbz, ggf. „Treppenbau neu laden“.
+- `test/reload_test.rb` liest die Version jetzt aus `src/jt_treppenbau.rb` (vorher fest 2.0.0).
+
+## Neu in 2.3.0 – Grundmaß bei freier Planung (fehler.md Nr. 3)
+- Neue Parameter `total_w` „Gesamtbreite der Treppe“ und `total_l` „Gesamttiefe der Treppe“ (Gruppe jetzt „Platzvorgabe (Grundmaß / Raum)“), nur bei „Treppe aus den Parametern berechnen“ sichtbar (`freeonly`), nicht bei Wendeltreppen. 0 = wie bisher aus den Parametern.
+- Umsetzung (`fit.rb`: `box_active?`, `solve_box`, `box_room`, `box_report`, `box_msg`): Einpassen wie in einen Raum mit drei Wänden, Spiel 0, rechte Winkel, ohne Treppenloch. Breite = über alles inkl. eingestemmter Wangen; Tiefe = fester Antritt (vorderste Stufenkante) bis Rückseite. Fehlt die Breite → natürliche Breite aus der freien Planung; fehlt die Tiefe → erst freier Antritt, dann exakt neu gerechnet. Ursprung = vordere linke Ecke des Grundmaßes.
+- Flag `_box` in `Room#check_room`: auch bei festem Antritt darf nichts vorn überstehen (U/dreiläufig: Austrittslauf).
+- Info „Grundmaß Breite × Tiefe“ (vorgegeben / aus Parametern), ggf. „Tatsächlicher Umriss“; Raumtexte (Wand, Luft, Antritt) entfallen bzw. werden umformuliert. L gewendelt: lassen sich Drachenstufen und Tiefe nicht vereinbaren, liegt die Treppe hinten an und vorn bleibt Platz (Warnung „Gesamttiefe wird um … nicht ausgefüllt“).
+- Vorschau: Grundmaß gestrichelt mit Beschriftung „Grundmaß“ (`space[:box]`, `space[:label]`); im 3D-Modell keine Hilfslinien dafür.
+- Test neu: `test/box_test.rb` (120 Fälle: Breite/Tiefe exakt, Ursprung, Breite aus Parametern = freie Planung, Raum-Modus unverändert, zu kleines Grundmaß → Meldung ohne „Raum“) – 0 Fehler; `build_test.rb` zusätzlich mit Grundmaß – 0 Fehler; fit/stringer/sattel/kite/reload unverändert.
+
+## Neu in 2.3.0 – Stöße der eingestemmten Wange bündig (fehler.md Nr. 2)
 - **Fehler behoben:** Bei Form „gerade“ (konstante Breite) hatte jedes Brett seine eigene Oberkanten-Gerade → an Gehrungsfugen (Wendelbereich) und Podesten Versatz oben und unten (bis > 50 cm).
 - Jetzt je Profilstück **stetige Oberkante**: Läufe aus mehreren Brettern bekommen gemeinsame Fugenhöhen (LP `joint_heights`/`lp_min`: Summe der größten Überstände je Brett minimal, danach kleinste Fläche; je Brett weiter gerade). An Podesten knickt die Oberkante im Podestbrett in die Steigung des Laufs ein (Kröpfung, `straight_piece`); sonst wird das niedrigere Brettende angehoben.
 - **Unterkante = Parallele** im Abstand der Brettbreite (`offset_down`, Gehrung an Knicken) → Ober- und Unterkante an jedem Stoß bündig, Breite rechtwinklig überall = `str_h`. Dadurch kleiner Knick der Unterkante kurz hinter dem Stoß.
 - Brettbreite automatisch: `straight_need` (Bisektion, auf 0,5 cm). Bretter haben jetzt `:tp`/`:bp` (Polylinien) wie die geschwungene Form → 3D/CNC über `curve_outline`/`curve_band`.
-- Test: `stringer_test.rb` prüft bei „gerade“ zusätzlich Fuge = 0 (auch an Podesten) und Mindestbreite – 0 Fehler; build/sattel/kite/cnc/pk_check/reload ohne Fehler. Version bleibt 2.0.0 (noch keine neue .rbz).
+- Test: `stringer_test.rb` prüft bei „gerade“ zusätzlich Fuge = 0 (auch an Podesten) und Mindestbreite – 0 Fehler; build/sattel/kite/cnc/pk_check/reload ohne Fehler. Enthalten in 2.3.0.
 
 ## Neu in 2.0.0 – Update ohne Deinstallation/Neustart
 - **Ursache vorher:** `main.rb` lud die Untermodule mit `require` → Ruby lädt eine Datei pro Sitzung nur einmal; nach Installation einer neuen .rbz lief bis zum Neustart der alte Code. (Signieren ändert daran nichts.)

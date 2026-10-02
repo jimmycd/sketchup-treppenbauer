@@ -62,7 +62,7 @@ module JTools
         build_walkline(sub(ents, 'Gehlinie', :hilfs), plan) if p['show_walkline']
         build_floor(sub(ents, 'Deckenkante', :hilfs), plan, p) if p['show_floor'] && p['floor_t'] > 0
 
-        build_space(sub(ents, 'Verfügbarer Raum', :hilfs), plan) if plan.space
+        build_space(sub(ents, 'Verfügbarer Raum', :hilfs), plan) if plan.space && !plan.space[:box]
 
         lbl = Params::VARIANTS.find { |v| v[0] == plan.variant }
         defn.description = "#{lbl ? lbl[1] : plan.variant}: #{n} × #{h.round(2)} / #{plan.a.round(2)} cm"

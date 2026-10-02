@@ -486,6 +486,7 @@ module JTools
 
       def compute(p)
         return Fit.solve(p) if Fit.active?(p)
+        return Fit.solve_box(p) if Fit.box_active?(p)
         plan = Plan.new
         plan.params = p
         v = p['variant']

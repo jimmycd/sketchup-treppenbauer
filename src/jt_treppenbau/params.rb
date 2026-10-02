@@ -53,33 +53,42 @@ module JTools
           group: 'Treppentyp', options: [['efh', 'Wohngebäude ≤ 2 Wohnungen'], ['sonst', 'Sonstige Gebäude'], ['neben', 'Baurechtlich nicht notwendige Treppe']],
           help: 'Nur für die Plausibilitätsprüfung (Richtwerte nach DIN 18065).' },
 
-        # --- Platzvorgabe -----------------------------------------------------
-        { key: 'fit_mode', label: 'Ermittlung', type: 'select', default: 'aus', group: 'Platzvorgabe (Raum)',
+        # --- Platzvorgabe (freie Planung: Grundmaß, sonst Raum) ---------------
+        { key: 'fit_mode', label: 'Ermittlung', type: 'select', default: 'aus', group: 'Platzvorgabe (Grundmaß / Raum)',
           options: [['aus', 'Treppe aus den Parametern berechnen'], ['raum', 'Treppe in verfügbaren Raum einpassen']],
           help: 'Die Treppe wird an die Wände (abzüglich Spiel) und an den Austritt gelegt – ohne Luft. Zwischen zwei Wänden ' \
                 'ergibt sich die Laufbreite aus dem Raum (U-Treppe: aus Raumbreite und Treppenauge). Gesucht werden Steigungsanzahl, ' \
                 'Auftritt und Aufteilung der Läufe; der Antritt ist frei oder fest vorgegeben.' },
-        { key: 'space_l', label: 'Raumlänge (von hinterer Wand bis Raumende am Antritt)', type: 'number', default: 400.0, unit: 'cm', group: 'Platzvorgabe (Raum)', min: 0, step: 1, fitonly: true },
-        { key: 'space_w', label: 'Raumbreite (entlang der hinteren Wand)', type: 'number', default: 250.0, unit: 'cm', group: 'Platzvorgabe (Raum)', min: 0, step: 1, fitonly: true },
-        { key: 'wall_gap', label: 'Spiel Wand – Treppe', type: 'number', default: 1.0, unit: 'cm', group: 'Platzvorgabe (Raum)', min: 0, step: 0.5, fitonly: true,
+        { key: 'total_w', label: 'Gesamtbreite der Treppe (Grundmaß quer)', type: 'number', default: 0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 0, step: 0.5,
+          freeonly: true, variants: NOSPIRAL,
+          help: '0 = ergibt sich aus Laufbreite (und Treppenauge). > 0 = die Treppe wird genau auf diese Breite gebracht, gemessen über alles ' \
+                'inkl. eingestemmter Wangen (gerade Treppe: Laufbreite folgt; U: Laufbreite aus Breite und Treppenauge; dreiläufig: Treppenauge folgt; ' \
+                'L: Aufteilung der Läufe folgt). Auftritt, Steigungen und Lauflängen werden wie beim Einpassen in einen Raum gesucht.' },
+        { key: 'total_l', label: 'Gesamttiefe der Treppe (Grundmaß in Laufrichtung)', type: 'number', default: 0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 0, step: 0.5,
+          freeonly: true, variants: NOSPIRAL,
+          help: '0 = ergibt sich aus dem Steigungsverhältnis. > 0 = von der vordersten Stufenkante (Antritt) bis zur Rückseite der Treppe ' \
+                '(gerade: Austrittskante, sonst Außenkante inkl. Wange); der Auftritt bzw. die Podestlänge wird angepasst.' },
+        { key: 'space_l', label: 'Raumlänge (von hinterer Wand bis Raumende am Antritt)', type: 'number', default: 400.0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 0, step: 1, fitonly: true },
+        { key: 'space_w', label: 'Raumbreite (entlang der hinteren Wand)', type: 'number', default: 250.0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 0, step: 1, fitonly: true },
+        { key: 'wall_gap', label: 'Spiel Wand – Treppe', type: 'number', default: 1.0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 0, step: 0.5, fitonly: true,
           help: 'Fuge zwischen Wange bzw. Stufe und Wand. An jeder vorhandenen Wand liegt die Treppe genau mit diesem Abstand an.' },
-        { key: 'wall_left', label: 'Wand links (vom Antritt aus gesehen)', type: 'bool', default: true, group: 'Platzvorgabe (Raum)', fitonly: true },
-        { key: 'wall_right', label: 'Wand rechts', type: 'bool', default: true, group: 'Platzvorgabe (Raum)', fitonly: true },
-        { key: 'wall_back', label: 'Wand gegenüber dem Antritt (hinten)', type: 'bool', default: true, group: 'Platzvorgabe (Raum)', fitonly: true },
-        { key: 'angle_left', label: 'Winkel hintere Wand – linke Wand', type: 'number', default: 90.0, unit: '°', group: 'Platzvorgabe (Raum)', min: 45, max: 135, step: 0.5, fitonly: true,
+        { key: 'wall_left', label: 'Wand links (vom Antritt aus gesehen)', type: 'bool', default: true, group: 'Platzvorgabe (Grundmaß / Raum)', fitonly: true },
+        { key: 'wall_right', label: 'Wand rechts', type: 'bool', default: true, group: 'Platzvorgabe (Grundmaß / Raum)', fitonly: true },
+        { key: 'wall_back', label: 'Wand gegenüber dem Antritt (hinten)', type: 'bool', default: true, group: 'Platzvorgabe (Grundmaß / Raum)', fitonly: true },
+        { key: 'angle_left', label: 'Winkel hintere Wand – linke Wand', type: 'number', default: 90.0, unit: '°', group: 'Platzvorgabe (Grundmaß / Raum)', min: 45, max: 135, step: 0.5, fitonly: true,
           help: 'Innenwinkel der Raumecke hinten links. < 90° = Raum wird nach vorn schmaler, > 90° = breiter.' },
-        { key: 'angle_right', label: 'Winkel hintere Wand – rechte Wand', type: 'number', default: 90.0, unit: '°', group: 'Platzvorgabe (Raum)', min: 45, max: 135, step: 0.5, fitonly: true },
-        { key: 'antritt_l', label: 'Antritt: Abstand von der hinteren Wand', type: 'number', default: 0, unit: 'cm', group: 'Platzvorgabe (Raum)', min: 0, step: 0.5, fitonly: true,
+        { key: 'angle_right', label: 'Winkel hintere Wand – rechte Wand', type: 'number', default: 90.0, unit: '°', group: 'Platzvorgabe (Grundmaß / Raum)', min: 45, max: 135, step: 0.5, fitonly: true },
+        { key: 'antritt_l', label: 'Antritt: Abstand von der hinteren Wand', type: 'number', default: 0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 0, step: 0.5, fitonly: true,
           help: '0 = frei: der Antritt ergibt sich aus dem idealen Steigungsverhältnis (höchstens bis Raumende). ' \
                 '> 0 = fest: die vorderste Stufenkante liegt genau so weit von der hinteren Wand entfernt (Auftritt wird angepasst).' },
-        { key: 'loch', label: 'Treppenloch (Deckenöffnung) vorgeben', type: 'bool', default: false, group: 'Platzvorgabe (Raum)', fitonly: true,
+        { key: 'loch', label: 'Treppenloch (Deckenöffnung) vorgeben', type: 'bool', default: false, group: 'Platzvorgabe (Grundmaß / Raum)', fitonly: true,
           help: 'Der Austritt liegt dann an der Kante des Treppenlochs (sonst an der Wand bzw. Raumgrenze). Zusätzlich wird die Kopffreiheit geprüft.' },
-        { key: 'loch_l', label: 'Treppenloch: Länge (in Richtung hintere Wand)', type: 'number', default: 280.0, unit: 'cm', group: 'Platzvorgabe (Raum)', min: 10, step: 1, fitonly: true, lochonly: true },
-        { key: 'loch_w', label: 'Treppenloch: Breite (entlang hinterer Wand)', type: 'number', default: 100.0, unit: 'cm', group: 'Platzvorgabe (Raum)', min: 10, step: 1, fitonly: true, lochonly: true },
-        { key: 'loch_x', label: 'Treppenloch: Abstand von linker Wand', type: 'number', default: 0, unit: 'cm', group: 'Platzvorgabe (Raum)', min: 0, step: 1, fitonly: true, lochonly: true,
+        { key: 'loch_l', label: 'Treppenloch: Länge (in Richtung hintere Wand)', type: 'number', default: 280.0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 10, step: 1, fitonly: true, lochonly: true },
+        { key: 'loch_w', label: 'Treppenloch: Breite (entlang hinterer Wand)', type: 'number', default: 100.0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 10, step: 1, fitonly: true, lochonly: true },
+        { key: 'loch_x', label: 'Treppenloch: Abstand von linker Wand', type: 'number', default: 0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 0, step: 1, fitonly: true, lochonly: true,
           help: 'Gemessen an der hinteren Wand von der linken Raumecke.' },
-        { key: 'loch_y', label: 'Treppenloch: Abstand von hinterer Wand', type: 'number', default: 0, unit: 'cm', group: 'Platzvorgabe (Raum)', min: 0, step: 1, fitonly: true, lochonly: true },
-        { key: 'head_min', label: 'Mindest-Kopfhöhe (lichte Durchgangshöhe)', type: 'number', default: 200.0, unit: 'cm', group: 'Platzvorgabe (Raum)', min: 150, step: 1, fitonly: true, lochonly: true },
+        { key: 'loch_y', label: 'Treppenloch: Abstand von hinterer Wand', type: 'number', default: 0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 0, step: 1, fitonly: true, lochonly: true },
+        { key: 'head_min', label: 'Mindest-Kopfhöhe (lichte Durchgangshöhe)', type: 'number', default: 200.0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 150, step: 1, fitonly: true, lochonly: true },
 
         # --- Höhe & Steigung ------------------------------------------------
         { key: 'H', label: 'Geschosshöhe (OKFF bis OKFF)', type: 'number', default: 275.0, unit: 'cm', group: 'Höhe & Steigungsverhältnis', min: 50, step: 0.5 },

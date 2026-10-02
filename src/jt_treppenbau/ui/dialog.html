@@ -208,6 +208,7 @@
       if (/^(rail_h|rail_d|post_every|post_s|rail_inset)$/.test(f.key) && this.values.rail === 'keins') return false;
       if (f.key === 'floor_t' && !this.values.show_floor) return false;
       if (f.fitonly && this.values.fit_mode !== 'raum') return false;
+      if (f.freeonly && this.values.fit_mode === 'raum') return false;
       if (f.lochonly && !this.values.loch) return false;
       if (f.side) {
         if (this.values.construction !== 'wange') return false;
@@ -365,7 +366,7 @@
         }
         var r1 = T(poly[1]);
         var st = el('text', { x: r1[0] + 4 * S, y: r1[1] - 6 * S, 'font-size': fs, fill: '#2f6fb3' });
-        st.textContent = 'Raum';
+        st.textContent = sp.label || 'Raum';
       }
       // Gesamtmaße
       var dimCol = '#666';
