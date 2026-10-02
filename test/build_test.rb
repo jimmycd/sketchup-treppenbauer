@@ -38,7 +38,8 @@ ROOMS = { 'gerade'=>[420,100], 'gerade_podest'=>[520,100], 'l_podest'=>[300,280]
 Params::ALL.each do |v|
  [{}, {'fit_mode'=>'raum','space_l'=>ROOMS[v][0],'space_w'=>ROOMS[v][1],'angle_left'=>86,'angle_right'=>93, 'show_floor'=>true},
   {'total_l'=>ROOMS[v][0],'total_w'=>ROOMS[v][1]},
-  {'fit_mode'=>'raum','space_l'=>ROOMS[v][0]-40,'space_w'=>ROOMS[v][1],'antritt_l'=>ROOMS[v][0]-20, 'show_floor'=>true}].each do |room|
+  {'fit_mode'=>'raum','space_l'=>ROOMS[v][0]-40,'space_w'=>ROOMS[v][1],'antritt_l'=>ROOMS[v][0]-20, 'show_floor'=>true},
+  {'pod1_vor'=>10,'pod1_nach'=>8,'pod2_vor'=>8,'pod2_nach'=>5,'exit_land'=>30}].each do |room|
   [['wange', 'wange', 'wange'], ['wangeK', 'wange', 'wange'], ['wange', 'sattel', 'frei'], ['wange', 'wange', 'sattel'], ['holm', nil, nil], ['massiv', nil, nil]].each do |c, sl, sr|
     [['rechts', true, 'beide'], ['links', false, 'aussen']].each do |dir, ris, rail|
       form = c == 'wangeK' ? 'kurve' : 'gerade'

@@ -58,7 +58,9 @@ module JTools
           options: [['aus', 'Treppe aus den Parametern berechnen'], ['raum', 'Treppe in verfügbaren Raum einpassen']],
           help: 'Die Treppe wird an die Wände (abzüglich Spiel) und an den Austritt gelegt – ohne Luft. Zwischen zwei Wänden ' \
                 'ergibt sich die Laufbreite aus dem Raum (U-Treppe: aus Raumbreite und Treppenauge). Gesucht werden Steigungsanzahl, ' \
-                'Auftritt und Aufteilung der Läufe; der Antritt ist frei oder fest vorgegeben.' },
+                'Auftritt und Aufteilung der Läufe; der Antritt ist frei oder fest vorgegeben. ' \
+                'Beim Umschalten bleibt die Treppe unverändert: Raum → Parameter übernimmt die gefundenen Werte (Feinjustierung), ' \
+                'Parameter → Raum leitet Raum, Antritt und ggf. Treppenloch aus der Treppe ab.' },
         { key: 'total_w', label: 'Gesamtbreite der Treppe (Grundmaß quer)', type: 'number', default: 0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 0, step: 0.5,
           freeonly: true, variants: NOSPIRAL,
           help: '0 = ergibt sich aus Laufbreite (und Treppenauge). > 0 = die Treppe wird genau auf diese Breite gebracht, gemessen über alles ' \
@@ -116,6 +118,20 @@ module JTools
           help: 'Abstand zwischen den Innenkanten der beiden Läufe (ohne Wangen). Beim Einpassen ergibt sich daraus die Laufbreite.' },
         { key: 'eye_z', label: 'Treppenauge (Abstand Lauf 1 – Lauf 3)', type: 'number', default: 0, unit: 'cm', group: 'Grundriss', min: 0, step: 1, variants: %w[z_podest z_wendel], fitonly: true,
           help: '0 = ergibt sich aus Raumbreite und Laufbreite. > 0 = vorgegeben, die Laufbreite folgt daraus.' },
+        { key: 'pod1_vor', label: 'Podest 1: Verlängerung vor der Wendung (Lauf 1)', type: 'number', default: 0, unit: 'cm', group: 'Grundriss', min: 0, step: 0.5,
+          variants: %w[l_podest u_podest z_podest], freeonly: true,
+          help: '0 = Podest genau so tief wie die Laufbreite. > 0 = Podest wird vor der Wendung in Laufrichtung um dieses Maß verlängert ' \
+                '(wird beim Umschalten von „Raum einpassen“ übernommen).' },
+        { key: 'pod1_nach', label: 'Podest 1: Verlängerung nach der Wendung', type: 'number', default: 0, unit: 'cm', group: 'Grundriss', min: 0, step: 0.5,
+          variants: %w[l_podest u_podest z_podest], freeonly: true },
+        { key: 'pod2_vor', label: 'Podest 2: Verlängerung vor der Wendung', type: 'number', default: 0, unit: 'cm', group: 'Grundriss', min: 0, step: 0.5,
+          variants: %w[z_podest], freeonly: true },
+        { key: 'pod2_nach', label: 'Podest 2: Verlängerung nach der Wendung', type: 'number', default: 0, unit: 'cm', group: 'Grundriss', min: 0, step: 0.5,
+          variants: %w[z_podest], freeonly: true },
+        { key: 'exit_land', label: 'Austrittspodest (Tiefe hinter der letzten Steigung)', type: 'number', default: 0, unit: 'cm', group: 'Grundriss', min: 0, step: 0.5,
+          variants: NOSPIRAL, freeonly: true,
+          help: '0 = kein Austrittspodest. > 0 = hinter der letzten Steigung folgt ein Podest auf Höhe der oberen Decke ' \
+                '(entspricht beim Einpassen „Abstand vom Rand des Treppenlochs“).' },
         { key: 'r1', label: 'Steigungen im 1. Lauf', type: 'number', default: 0, unit: 'Stk', group: 'Grundriss', min: 0, step: 1, variants: PODEST,
           help: '0 = automatisch (gleichmäßig verteilt). Beim Einpassen mit festem Antritt bzw. Austritt ergibt sich die Aufteilung aus dem Raum.' },
         { key: 'r2', label: 'Steigungen im 2. Lauf', type: 'number', default: 0, unit: 'Stk', group: 'Grundriss', min: 0, step: 1, variants: ['z_podest'],

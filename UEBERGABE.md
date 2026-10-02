@@ -1,11 +1,11 @@
-# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.5.0, 02.10.2026)
+# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.6.0, 02.10.2026)
 
 ## Was es ist
 SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Export nach TCN (TpaCAD), angelehnt an Jürgens Plugin **dxf4tcn**.
 
 ## Dateien in diesem Ordner (E:\sketchup-treppe)
-- `treppenbau_2.5.0.rbz` – aktuelle installierbare Version 2.5.0 (2.4.0 und 2.3.0 nur noch in der Git-Historie; ab 2.3.0 Versionsnummer im Dateinamen; `_9` = 2.0.0, `_8` = 1.5.3, `_1` = 1.1.0 … `_4` = 1.4.0, `_5` = 1.5.0, `_6` = 1.5.1, `_7` = 1.5.2)
-- `src/` + `test/` – **Arbeitskopie** der Quellen (Stand 2.5.0), wird vom Entwickler-Loader direkt geladen
+- `treppenbau_2.6.0.rbz` – aktuelle installierbare Version 2.6.0 (2.5.0, 2.4.0 und 2.3.0 nur noch in der Git-Historie; ab 2.3.0 Versionsnummer im Dateinamen; `_9` = 2.0.0, `_8` = 1.5.3, `_1` = 1.1.0 … `_4` = 1.4.0, `_5` = 1.5.0, `_6` = 1.5.1, `_7` = 1.5.2)
+- `src/` + `test/` – **Arbeitskopie** der Quellen (Stand 2.6.0), wird vom Entwickler-Loader direkt geladen
 - `jt_aa_treppenbau_dev.rb` – Entwickler-Loader (in den SketchUp-Plugins-Ordner kopieren, lädt aus `E:\sketchup-treppe\src`)
 - `treppenbau_quellen_tests_9.zip` – Quellcode + Tests Stand 2.0.0 (`_8` = 1.5.3, `_7` = 1.5.2, `_6` = 1.5.1, `_5` = 1.5.0, ohne Nummer = 1.4.0)
 - `_to_delete/` – Debug-Plots, kann gelöscht werden
@@ -20,6 +20,7 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 | `params.rb` | **Schema aller Parameter** (Dialog wird daraus generiert), Varianten, `normalize`, `side_kind` (Seite → wange/sattel/frei) |
 | `geometry.rb` | Reine Geometrie (ohne SU-API): `Plan`, `Polyline`, `Turtle` (Ecken mit beliebigem Winkel, schräger Endschnitt), `Layout.compute`, `finish_flights`, Drachenstufen |
 | `fit.rb` | Raum einpassen (`fit_mode = 'raum'`), Klasse `Fit::Room`; Kopffreiheit |
+| `transfer.rb` | **neu 2.6.0**: Umschalten Raum ↔ Parameter ohne Änderung der Treppe (`Transfer.switch`, Planvergleich `compare`) |
 | `stringers.rb` | **neu**: Wangen aus geraden Brettern (eingestemmt + aufgesattelt), gemeinsam für 3D und CNC |
 | `builder.rb` | SketchUp-Geometrie (Stufen, Setzstufen, Wangen, Sattelwangen, Holm, Massiv, Geländer, Spindel, Gehlinie, Decke/Treppenloch, Raumumriss) |
 | `dialog.rb` + `ui/dialog.html` | Parameterdialog (HtmlDialog) mit SVG-Grundriss (Raum, Wände, Treppenloch), Live-Update |
@@ -30,6 +31,18 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
+
+## Version 2.6.0 (treppenbau_2.6.0.rbz) – Umschalten Raum ↔ Parameter ohne Änderung (fehler.md Nr. 6)
+- Beim Umschalten von „Ermittlung“ bleibt die Treppe gleich; danach Feinjustierung im anderen Modus möglich. Dialog ruft `switch_mode` → `Transfer.switch(p, mode)` → `TB.onSwitched` (Werte, Meldung in der Statuszeile: „Treppe unverändert“ bzw. Abweichung in cm).
+- **Raum → Parameter:** übernimmt Steigungen, Auftritt (4 Nachkommastellen), Laufbreite, Gehlinie, Steigungen je Lauf (r1/r2), Lage der Wendelung (m1/m2 aus den Drachenstufen), Podestlänge (gerade mit Podest), Podestverlängerungen, Austrittspodest; Grundmaß (`total_w/total_l`) wird 0. Wendeltreppe: nur `D_out`.
+- **Parameter → Raum:** Raumlänge/-breite aus dem Umriss inkl. Wangen + Spiel an vorhandenen Wänden, Wandwinkel 90°, **fester Antritt**, `eye_z` = 0. Treppenloch: vorhandenes wird an den Austritt gelegt (Maße soweit möglich behalten); bei Austrittspodest bzw. U/dreiläufig mit Podestverlängerung nach der letzten Wendung wird automatisch eins angelegt (`loch_gap` = Austrittspodest).
+- Werte, die vorher „automatisch“ (0) waren, bleiben automatisch, wenn sich die Treppe dadurch nicht ändert (`Transfer.relax`, prüft jeweils per Planvergleich). Wird ohne Änderung zurückgeschaltet, stellt der Dialog die vorherigen Werte exakt wieder her (`TB.lastSwitch`).
+- **Neue Parameter (nur „aus Parametern“):** `pod1_vor`, `pod1_nach` (L/U/dreiläufig mit Podest), `pod2_vor`, `pod2_nach` (dreiläufig) = Podestverlängerung vor/nach der Wendung; `exit_land` = Austrittspodest hinter der letzten Steigung (Gegenstück zu `loch_gap`). Standard 0 → alte Treppen unverändert.
+- **SketchUp:** Beim Übernehmen nach einem Moduswechsel wird die Instanz so verschoben, dass die Treppe im Modell stehen bleibt (`StairDialog#keep_position`, Bezug: Innenpunkt der Antrittskante; Raum-Ursprung = vordere linke Raumecke, freier Ursprung = Antritt).
+- **Grenze:** schräge Wände (≠ 90°) lassen sich ohne Raum nicht nachbilden → Meldung mit Abweichung. Dreiläufig mit Podest: beim Einpassen werden die Verlängerungen zwischen den Wendungen gleichmäßig verteilt (sonst Meldung).
+- **Wangen-Korrektur (`stringers.rb#merge_short`):** sehr kurze Bretter (< 1,5 · Wangendicke + 1 cm, z. B. kleine Podestverlängerung hinter einer Ecke) werden mit dem Brett in gleicher Flucht vereinigt – vorher überschnitten sich Gehrung und Brettende (Körper nicht geschlossen; trat auch beim Einpassen mit Treppenloch auf). Folge: dreiläufig mit Podest im Raum-Test Wangenbreite 42,5 → 40,0 cm.
+- Test neu: `test/switch_test.rb` (492 Fälle: alle Formen, rechts/links, 3 Seitenkombinationen; Raum → Parameter → zurück und Parameter (inkl. Grundmaß, Podestverlängerungen, Austrittspodest, ohne rechte Wand, mit Treppenloch) → Raum → zurück; Vergleich aller Stufenlinien und Umrisse, Toleranz 0,01 cm) – 0 Fehler. `build_test.rb` zusätzlich mit Podestverlängerungen + Austrittspodest – 31067 Gruppen, 0 Fehler. fit/austritt/antritt/box/kite/sattel/cnc/pk_check/reload unverändert; stringer_test nur obige Wangenbreite.
+- Dialog-Ablauf mit Playwright-Mock geprüft (Umschalten, Werte, Statusmeldung, Rückschalten stellt Werte her).
 
 ## Version 2.5.0 (treppenbau_2.5.0.rbz) – Austrittspodest am Treppenloch (fehler.md Nr. 5)
 - Neuer Parameter `loch_gap` „Austritt: Abstand vom Rand des Treppenlochs (Austrittspodest)“ (Raum-Modus, nur mit Treppenloch, nicht Wendeltreppe). 0 = wie bisher (Austrittskante an der Lochkante).
@@ -141,7 +154,7 @@ Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`
 - Unter den Stufen, um `sat_inset` eingerückt, Dicke `sat_t`; Sägezahn-Oberkante (Auflager, senkrechte Ausklinkung hinter Setzstufe/Unterschneidung); gerade Unterkante `sat_rest` rechtwinklig unter den inneren Ecken; an Podesten eigenes Brett. CNC-Export als Wangenteil `SA…/SI…` (ohne Nuten).
 
 ## Tests (ohne SketchUp, Ruby 3.x)
-In `test/`: `su_mock.rb`, `austritt_test.rb` (Austrittspodest), `build_test.rb` (alle Formen × Seiten-Kombinationen × frei/Raum mit schrägen Wänden, prüft geschlossene Körper), `plan_test.rb`, `fit_test.rb` (Raumfälle inkl. Winkel, Antritt fest, Treppenloch), `stringer_test.rb` (Überstand ≥ Vorgabe, konstante Breite, Mindestabstand unten), `kite_test.rb` (Drachenstufen), `cnc_test.rb`, `tcncheck.rb`, Plots `plotfit2.py`, `plotboards.rb/.py`, `dump3d.rb` + `render1.py`, Dialog-Screenshots `fmock2.rb` + `shotx.js` (Playwright).
+In `test/`: `su_mock.rb`, `switch_test.rb` (Umschalten Raum ↔ Parameter), `austritt_test.rb` (Austrittspodest), `build_test.rb` (alle Formen × Seiten-Kombinationen × frei/Raum mit schrägen Wänden, prüft geschlossene Körper), `plan_test.rb`, `fit_test.rb` (Raumfälle inkl. Winkel, Antritt fest, Treppenloch), `stringer_test.rb` (Überstand ≥ Vorgabe, konstante Breite, Mindestabstand unten), `kite_test.rb` (Drachenstufen), `cnc_test.rb`, `tcncheck.rb`, Plots `plotfit2.py`, `plotboards.rb/.py`, `dump3d.rb` + `render1.py`, Dialog-Screenshots `fmock2.rb` + `shotx.js` (Playwright).
 Paket bauen: im Ordner `src`: `zip -r treppenbau.rbz jt_treppenbau.rb jt_treppenbau`
 
 ## Noch nicht in SketchUp/TpaCAD getestet

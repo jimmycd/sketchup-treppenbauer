@@ -5,4 +5,4 @@
 4) Antritt: Abstand von der hinteren Wand - muss auch größer als tiefe der treppe sein dürfen, dh erste stufe muss auch ausserhalb der raummasse oder des treppenlochs liegen dürfen; der ausstieg der treppe darf dies weiterhin NICHT.
  - ok
 5) füge eine option ein, um einen abstand des austritts von rand des treppenloches eingeben zu können (was ein podest ergit). sollte ein podest entstehen, kontruiere dieses mit. standardwert ist 0, dh der austritt ist immer am rand des treppenlochs. - ok
-6) wenn planung mit raummmassen erfolgt ist, müssen alle masse/parameter  bei umschalten auf "treppe aus paramtern berechnen" ich nicht ändern und umgekehrt - so soll eine feinjustieruntg der treppe möglich sein
+6) wenn planung mit raummmassen erfolgt ist, müssen alle masse/parameter  bei umschalten auf "treppe aus paramtern berechnen" ich nicht ändern und umgekehrt - so soll eine feinjustieruntg der treppe möglich sein - ok

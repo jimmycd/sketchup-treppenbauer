@@ -195,6 +195,7 @@
     },
 
     set: function (key, val) {
+      if (key === 'fit_mode' && val !== this.values.fit_mode && this.canCall('switch_mode')) { this.switchMode(val); return; }
       this.values[key] = val;
       if (/^(variant|construction|side_left|side_right|str_form|risers|rail|show_floor|fit_mode|loch)$/.test(key)) this.updateVisibility();
       this.requestPreview(false);
@@ -239,6 +240,38 @@
         var live = self.mode === 'edit' && $('live').checked;
         self.call('preview', JSON.stringify(self.values), live);
       }, now ? 0 : 250);
+    },
+
+    canCall: function (name) {
+      return !!((window.sketchup && typeof window.sketchup[name] === 'function') || (window.TB_MOCK && window.TB_MOCK[name]));
+    },
+
+    // Umschalten Raum <-> Parameter: Ruby übernimmt die Werte so, dass die Treppe
+    // gleich bleibt (fehler.md Nr. 6). Wird ohne Änderung zurückgeschaltet,
+    // kommen die vorherigen Werte (inkl. „automatisch“) unverändert zurück.
+    switchMode: function (mode) {
+      var ls = this.lastSwitch;
+      if (ls && ls.to === this.values.fit_mode && ls.from === mode && JSON.stringify(this.values) === ls.after) {
+        this.values = JSON.parse(ls.before);
+        this.lastSwitch = null;
+        this.render();
+        this.requestPreview(true);
+        this.status('Vorherige Werte wiederhergestellt – Treppe unverändert.', 'ok');
+        return;
+      }
+      this.switchFrom = JSON.stringify(this.values);
+      this.status('Werte werden übernommen …', '');
+      this.call('switch_mode', this.switchFrom, mode);
+    },
+
+    onSwitched: function (res) {
+      if (!res.ok) { this.status(res.error, 'err'); this.render(); return; }
+      var before = this.switchFrom || JSON.stringify(this.values);
+      this.values = Object.assign({}, this.values, res.params);
+      this.lastSwitch = { from: JSON.parse(before).fit_mode, to: this.values.fit_mode, before: before, after: JSON.stringify(this.values) };
+      this.render();
+      this.requestPreview(true);
+      this.status(res.message, res.exact ? 'ok' : 'err');
     },
 
     call: function (name) {

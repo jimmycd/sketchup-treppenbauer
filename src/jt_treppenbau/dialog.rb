@@ -53,6 +53,7 @@ module JTools
         @dlg.add_action_callback('ready') { |_ctx| send_init }
         @dlg.add_action_callback('preview') { |_ctx, json, live| on_preview(json, live) }
         @dlg.add_action_callback('apply') { |_ctx, json, close| on_apply(json, close) }
+        @dlg.add_action_callback('switch_mode') { |_ctx, json, mode| on_switch(json, mode) }
         @dlg.add_action_callback('close') { |_ctx| @dlg.close }
         @dlg.set_on_closed { StairDialog.current = nil if StairDialog.current == self }
         @dlg.show
@@ -114,6 +115,14 @@ module JTools
         nil
       end
 
+      # Umschalten Raum <-> Parameter ohne Änderung der Treppe (fehler.md Nr. 6)
+      def on_switch(json, mode)
+        res = Transfer.switch(JSON.parse(json.to_s), mode.to_s)
+        js("TB.onSwitched(#{JSON.generate(res)})")
+      rescue StandardError => e
+        js("TB.onSwitched(#{JSON.generate(ok: false, error: "Interner Fehler: #{e.message}")})")
+      end
+
       def on_apply(json, close)
         p = Params.normalize(JSON.parse(json.to_s))
         res = apply_params(p, false)
@@ -130,7 +139,9 @@ module JTools
           if editing?
             @instance.make_unique if @instance.definition.count_instances > 1
             defn = @instance.definition
+            old_p = Treppenbau.read_params(defn)
             plan = Builder.build(defn, p)
+            keep_position(old_p, plan) if old_p['fit_mode'] != p['fit_mode']
           else
             defn = model.definitions.add('Treppe')
             plan = Builder.build(defn, p)
@@ -152,6 +163,21 @@ module JTools
           puts "[Treppenbau] #{e.class}: #{e.message}\n#{e.backtrace.first(8).join("\n")}"
           { ok: false, error: "Fehler beim Erzeugen: #{e.message}" }
         end
+      end
+
+      # Nach dem Umschalten der Ermittlung liegt die Treppe im Komponenten-
+      # Koordinatensystem an anderer Stelle (Raum: Ursprung = vordere linke Raumecke).
+      # Die Instanz wird so verschoben, dass die Treppe im Modell stehen bleibt.
+      def keep_position(old_p, plan)
+        old_plan = Layout.compute(old_p)
+        a = old_plan.line(0.0)[:in]
+        b = plan.line(0.0)[:in]
+        d = Geo.sub(a, b)
+        return if Geo.len(d) < 1e-6
+        v = Geom::Vector3d.new(d[0].cm, d[1].cm, 0)
+        @instance.transformation = @instance.transformation * Geom::Transformation.translation(v)
+      rescue PlanError, StandardError => e
+        puts "[Treppenbau] Lage nach Umschalten nicht angepasst: #{e.message}"
       end
 
       def js(code)

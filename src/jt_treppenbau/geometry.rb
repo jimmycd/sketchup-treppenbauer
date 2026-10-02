@@ -713,11 +713,13 @@ module JTools
           r1 = pick(p['r1'], (n / 2.0).round, 1, n - 1, 'Steigungen im 1. Lauf')
           t.straight((r1 - 1) * a)
           z = t.turn(:landing) do
+            t.straight(p['pod1_vor'].to_f)
             t.corner
             if v == 'u_podest'
               t.straight(e)
               t.corner
             end
+            t.straight(p['pod1_nach'].to_f)
           end
           t.straight((n - r1 - 1) * a)
           depths = [a] * (r1 - 1) + [z[:w1] - z[:w0]] + [a] * (n - r1 - 1)
@@ -728,9 +730,9 @@ module JTools
           r2 = pick(p['r2'], ((n - r1) / 2.0).round, 1, n - r1 - 1, 'Steigungen im 2. Lauf')
           r3 = n - r1 - r2
           t.straight((r1 - 1) * a)
-          z1 = t.turn(:landing) { t.corner }
+          z1 = t.turn(:landing) { t.straight(p['pod1_vor'].to_f); t.corner; t.straight(p['pod1_nach'].to_f) }
           t.straight((r2 - 1) * a)
-          z2 = t.turn(:landing) { t.corner }
+          z2 = t.turn(:landing) { t.straight(p['pod2_vor'].to_f); t.corner; t.straight(p['pod2_nach'].to_f) }
           t.straight((r3 - 1) * a)
           depths = [a] * (r1 - 1) + [z1[:w1] - z1[:w0]] + [a] * (r2 - 1) + [z2[:w1] - z2[:w0]] + [a] * (r3 - 1)
           kinds[r1 - 1] = :landing
@@ -769,6 +771,15 @@ module JTools
           flights = [n]
         else
           raise PlanError, "Unbekannte Treppenform: #{v}"
+        end
+
+        # Austrittspodest auf Höhe H hinter der letzten Steigung (fehler.md Nr. 6:
+        # Gegenstück zu loch_gap beim Einpassen)
+        xl = p['exit_land'].to_f
+        if xl > 1e-6
+          z = t.turn(:landing) { t.straight(xl) }
+          depths += [z[:w1] - z[:w0]]
+          kinds += [:landing]
         end
 
         finish_flights(plan, p, t, n, a, depths, kinds, flights, gl)

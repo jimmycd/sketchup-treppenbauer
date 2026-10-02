@@ -204,6 +204,10 @@ module JTools
                         keyed: bd.select { |it| it[3] }.map { |it| [it[2], it[1]] }, landing: lk,
                         c: c, s: s, dir: dir, piece: pi, idx0: bd[0][3], idx1: bd[-1][3] }
             end
+            # Sehr kurze Bretter (z. B. kleine Podestverlängerung hinter einer Ecke)
+            # mit dem in der Flucht liegenden Nachbarbrett vereinigen – sonst
+            # überschneiden sich Gehrung und Brettende (fehler.md Nr. 6)
+            list = merge_short(list, 1.5 * p['str_t'].to_f + 1.0)
             # Splitter (< 3 cm, z. B. minimale Podestverlängerung) weglassen
             list = list.reject { |b| b[:u1] - b[:u0] < 3.0 } if list.size > 1
             # Endnormalen: Gehrung zwischen Brettern, sonst entlang der Stufenlinie
@@ -256,6 +260,37 @@ module JTools
         res[:wange] = boards
         res[:width] = width
         res[:need] = need
+      end
+
+      # Kurzes Brett (Länge < lmin) mit kollinearem Nachbarn (gleiche Richtung im
+      # Grundriss) zu einem Brett zusammenfassen. Das Ergebnis ist ein Laufbrett
+      # (kein Podestbrett); seine Oberkante liegt über allen Anforderungen.
+      def merge_short(list, lmin)
+        loop do
+          i = (0...list.size).find do |j|
+            b = list[j]
+            next false unless b[:u1] - b[:u0] < lmin
+            [j - 1, j + 1].any? { |k| k >= 0 && k < list.size && Geo.dot(list[k][:dir], b[:dir]) > 1 - 1e-6 }
+          end
+          return list unless i
+          b = list[i]
+          k = [i + 1, i - 1].find { |j| j >= 0 && j < list.size && Geo.dot(list[j][:dir], b[:dir]) > 1 - 1e-6 }
+          a, c = [i, k].min == i ? [b, list[k]] : [list[k], b]
+          keep = a.equal?(b) ? c : a
+          m = keep.dup
+          m[:base] = a[:base] + c[:base][1..-1]
+          m[:us] = a[:us] + c[:us][1..-1]
+          m[:u0] = a[:u0]; m[:u1] = c[:u1]
+          m[:req] = (a[:req] + c[:req]).sort_by(&:first)
+          m[:req_bot] = a[:req_bot] + c[:req_bot]
+          m[:steps] = a[:steps] + c[:steps]
+          m[:keyed] = a[:keyed] + c[:keyed]
+          m[:idx0] = a[:idx0]; m[:idx1] = c[:idx1]
+          m[:c], m[:s] = top_line(m[:req])
+          m[:dir] = Geo.norm(Geo.sub(m[:base][-1], m[:base][0]))
+          lo = [i, k].min
+          list = list[0...lo] + [m] + list[lo + 2..-1]
+        end
       end
 
       # --- gerade Wange: bündige Stöße ------------------------------------
