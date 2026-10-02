@@ -80,7 +80,9 @@ module JTools
         { key: 'angle_right', label: 'Winkel hintere Wand – rechte Wand', type: 'number', default: 90.0, unit: '°', group: 'Platzvorgabe (Grundmaß / Raum)', min: 45, max: 135, step: 0.5, fitonly: true },
         { key: 'antritt_l', label: 'Antritt: Abstand von der hinteren Wand', type: 'number', default: 0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 0, step: 0.5, fitonly: true,
           help: '0 = frei: der Antritt ergibt sich aus dem idealen Steigungsverhältnis (höchstens bis Raumende). ' \
-                '> 0 = fest: die vorderste Stufenkante liegt genau so weit von der hinteren Wand entfernt (Auftritt wird angepasst).' },
+                '> 0 = fest: die vorderste Stufenkante liegt genau so weit von der hinteren Wand entfernt (Auftritt wird angepasst). ' \
+                'Der Wert darf größer als die Raumlänge sein – die ersten Stufen liegen dann vor dem Raumende bzw. außerhalb des Treppenlochs; ' \
+                'der Austritt bleibt immer im Raum.' },
         { key: 'loch', label: 'Treppenloch (Deckenöffnung) vorgeben', type: 'bool', default: false, group: 'Platzvorgabe (Grundmaß / Raum)', fitonly: true,
           help: 'Der Austritt liegt dann an der Kante des Treppenlochs (sonst an der Wand bzw. Raumgrenze). Zusätzlich wird die Kopffreiheit geprüft.' },
         { key: 'loch_l', label: 'Treppenloch: Länge (in Richtung hintere Wand)', type: 'number', default: 280.0, unit: 'cm', group: 'Platzvorgabe (Grundmaß / Raum)', min: 10, step: 1, fitonly: true, lochonly: true },

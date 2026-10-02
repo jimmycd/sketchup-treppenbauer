@@ -1,11 +1,11 @@
-# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.3.0, 02.10.2026)
+# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.4.0, 02.10.2026)
 
 ## Was es ist
 SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Export nach TCN (TpaCAD), angelehnt an Jürgens Plugin **dxf4tcn**.
 
 ## Dateien in diesem Ordner (E:\sketchup-treppe)
-- `treppenbau_2.3.0.rbz` – aktuelle installierbare Version 2.3.0 (ab jetzt Versionsnummer im Dateinamen; `_9` = 2.0.0, `_8` = 1.5.3, `_1` = 1.1.0 … `_4` = 1.4.0, `_5` = 1.5.0, `_6` = 1.5.1, `_7` = 1.5.2)
-- `src/` + `test/` – **Arbeitskopie** der Quellen (Stand 2.3.0), wird vom Entwickler-Loader direkt geladen
+- `treppenbau_2.4.0.rbz` – aktuelle installierbare Version 2.4.0 (2.3.0 nur noch in der Git-Historie; ab 2.3.0 Versionsnummer im Dateinamen; `_9` = 2.0.0, `_8` = 1.5.3, `_1` = 1.1.0 … `_4` = 1.4.0, `_5` = 1.5.0, `_6` = 1.5.1, `_7` = 1.5.2)
+- `src/` + `test/` – **Arbeitskopie** der Quellen (Stand 2.4.0), wird vom Entwickler-Loader direkt geladen
 - `jt_aa_treppenbau_dev.rb` – Entwickler-Loader (in den SketchUp-Plugins-Ordner kopieren, lädt aus `E:\sketchup-treppe\src`)
 - `treppenbau_quellen_tests_9.zip` – Quellcode + Tests Stand 2.0.0 (`_8` = 1.5.3, `_7` = 1.5.2, `_6` = 1.5.1, `_5` = 1.5.0, ohne Nummer = 1.4.0)
 - `_to_delete/` – Debug-Plots, kann gelöscht werden
@@ -30,6 +30,13 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
+
+## Version 2.4.0 (treppenbau_2.4.0.rbz) – Antritt außerhalb des Raums (fehler.md Nr. 4)
+- `antritt_l` „Antritt: Abstand von der hinteren Wand“ darf jetzt **größer als die Raumlänge** sein: die ersten Stufen liegen dann vor dem Raumende bzw. außerhalb des Treppenlochs. Die Meldung „Antritt liegt außerhalb der Raumlänge“ gibt es nur noch beim Grundmaß (`_box`).
+- Der **Austritt** muss weiterhin im Raum bzw. am Treppenloch liegen: neue Prüfung in `Room#check_room` (bei festem Antritt: Austrittslinie nicht vor dem Raumende; betrifft v. a. U/dreiläufig, deren Austrittslauf nach vorn läuft) → Meldung „Austritt liegt außerhalb der Raumlänge.“
+- Wendeltreppen: Verschiebt die Drachenstufen-Lage den Antritt nach vorn, war das bisher nur bis zum Raumende erlaubt; liegt der feste Antritt schon vor dem Raumende, ist die Verschiebung jetzt frei (Warnung wie bisher).
+- Info neu: „Treppe ragt über das Raumende (Antritt) hinaus: … cm“. Hilfetext des Parameters ergänzt. Seitenwände gelten vor dem Raumende als verlängert (Treppe muss auch dort zwischen den Wandlinien bleiben).
+- Test neu: `test/antritt_test.rb` (73 Fälle, alle Formen, rechts/links, mit/ohne Treppenloch, Antritt 5–60 cm vor dem Raumende: Antritt exakt, Austritt im Raum; freier Antritt bleibt im Raum) – 0 Fehler. `build_test.rb` zusätzlich mit Antritt 20 cm vor dem Raumende – 0 Fehler; fit/box/kite/stringer/sattel/reload/cnc unverändert.
 
 ## Version 2.3.0 (treppenbau_2.3.0.rbz)
 - Enthält fehler.md Nr. 1 (Wangenform geschwungen auch für aufgesattelte Wangen), Nr. 2 und Nr. 3. Update ohne Deinstallation: Erweiterungs-Manager → „Erweiterung installieren“ → .rbz, ggf. „Treppenbau neu laden“.

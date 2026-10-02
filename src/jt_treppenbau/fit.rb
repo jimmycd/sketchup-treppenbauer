@@ -248,7 +248,9 @@ module JTools
 
         # --------------------------------------------------------------------
         def solve
-          raise PlanError, 'Antritt liegt außerhalb der Raumlänge.' if @p['antritt_l'].to_f > @L + 1e-6
+          # Fester Antritt darf auch vor dem Raumende bzw. außerhalb des Treppenlochs
+          # liegen (antritt_l > Raumlänge); der Austritt muss im Raum bleiben (check_room).
+          raise PlanError, 'Antritt liegt außerhalb der Raumlänge.' if @p['_box'] && @p['antritt_l'].to_f > @L + 1e-6
           @y_fix = @p['antritt_l'].to_f > 0 ? @L - @p['antritt_l'].to_f : nil
           hh = @p['H'].to_f
           @n_list = if @p['n_steps'].to_i > 0
@@ -840,7 +842,9 @@ module JTools
           plan.b = @b
           finish(plan, t, n, a, depths, kinds, flights, gl || @gl)
           plan.instance_variable_set(:@kite_shift, @kite_shift)
-          if winder? && @kite_shift && @kite_shift.abs > 0.05
+          # Verschiebung des Antritts nach vorn nur bis zum Raumende – es sei denn,
+          # der feste Antritt liegt ohnehin schon vor dem Raumende (fehler.md Nr. 4)
+          if winder? && @kite_shift && @kite_shift.abs > 0.05 && !(@y_fix && @y_fix < -TOL && !@p['_box'])
             ys = Fit.footprint_pts(plan, @p).map(&:last)
             return fail!('Treppe ist zu lang für die Raumlänge.') if ys.min < -TOL
           end
@@ -906,6 +910,15 @@ module JTools
             @fails << 'Treppe ist zu lang für die Raumlänge.'
             return false
           end
+          # Fester Antritt (auch vor dem Raumende): der Austritt darf nicht vorn
+          # aus dem Raum ragen (U/dreiläufig: Austrittslauf läuft nach vorn)
+          if @y_fix && !@p['_box']
+            le = plan.line(plan.wtot)
+            if [mp.(le[:in])[1], mp.(le[:out])[1]].min < -TOL
+              @fails << 'Austritt liegt außerhalb der Raumlänge.'
+              return false
+            end
+          end
           plan.instance_variable_set(:@luft, @luft.dup)
           true
         end
@@ -964,6 +977,9 @@ module JTools
           y_ant = [l0[:in][1], l0[:out][1]].min
           info << ['Antritt: Abstand von hinterer Wand', format('%.1f cm%s', @L - y_ant, @y_fix ? ' (fest)' : '')]
           info << ['Platzbedarf in der Länge (inkl. Wangen)', format('%.1f cm von %.0f cm', @L - ys.min, @L)]
+          if ys.min < -TOL
+            info << ['Treppe ragt über das Raumende (Antritt) hinaus', format('%.1f cm', -ys.min)]
+          end
           info << ['Luft zu den Wänden (über Spiel hinaus)', txt.join(' / ') + ' cm'] unless txt.empty?
           info << ['Austritt an', @loch_c ? 'Kante Treppenloch' : (@v =~ /^[uz]_/ ? 'frei (kein Treppenloch)' : 'Wand / Raumgrenze')]
           plan.info = info + plan.info
