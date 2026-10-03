@@ -37,10 +37,19 @@ module JTools
         'deco_tool'   => 1400,    # Gravurwerkzeug (dxf4tcn Verzierungen)
         'deco_depth'  => 2.0,     # Gravurtiefe (dxf4tcn)
         'text_h'      => 30.0,    # Schrifthöhe (mm)
-        'open_tpa'    => true     # erste TCN in TpaCAD öffnen (dxf4tcn)
+        'open_tpa'    => true,    # erste TCN in TpaCAD öffnen (dxf4tcn)
+        # aufgesattelte Wangen: je Wange ein 3D-Programm (Rohling rechteckig)
+        'sat_mode'    => 'fraesen', # Schrägen 'fraesen' (Seitenaggregat) oder nur 'markieren'
+        'sat_wenden'  => false,   # Schrägen mit umgekehrter Neigung nach Wenden (Seite 2)
+        'agg_tool'    => 15001,   # Seitenaggregat (waagerechte Spindel)
+        'agg_d'       => 16.0,    # Ø Aggregatfräser (mm)
+        'agg_len'     => 167.0,   # nutzbare Länge (mm)
+        'agg_clear'   => 5.0,     # Freiraum Aggregat über dem Material (mm)
+        'agg_step'    => 50.0,    # Zustellung entlang der Achse (mm)
+        'blank_margin' => 15.0    # Rohling: Zugabe ringsum (mm)
       }.freeze
 
-      Result = Struct.new(:sheets, :unplaced, :warnings, :parts)
+      Result = Struct.new(:sheets, :unplaced, :warnings, :parts, :boards)
       SheetInfo = Struct.new(:thickness, :index, :count, :placements, :used_len, :util)
 
       def normalize(h)
@@ -50,6 +59,8 @@ module JTools
           d = DEFAULTS[k]
           o[k] = if d == true || d == false
                    v == true || v.to_s == 'true'
+                 elsif d.is_a?(String)
+                   v.to_s
                  elsif d.is_a?(Integer)
                    v.to_i
                  else
@@ -69,6 +80,21 @@ module JTools
                                         stringers: o['p_stringers'], posts: o['p_posts'],
                                         rail: o['p_rail'], einstand: o['einstand'], pocket_d: o['pocket_d'])
         warnings = warnings.dup
+        # aufgesattelte Wangen mit 3D-Daten: eigenes Programm je Wange
+        boards = []
+        if o['p_stringers'] && params['construction'] == 'wange'
+          boards = Wange3d.jobs(plan, params, o)
+          lbls = boards.map(&:label)
+          parts = parts.reject { |pt| pt.kind == :stringer && lbls.include?(pt.label) }
+          boards.each { |b| warnings << b.summary if b.summary }
+          long = boards.select { |b| b.blank[0] > o['plate_l'] || b.blank[1] > o['plate_w'] }
+          unless long.empty?
+            warnings << "Wangen-Rohling größer als Rohplatte/Tisch (#{o['plate_l'].round} × #{o['plate_w'].round} mm): " +
+                        long.map { |b| "#{b.label} (#{b.blank.map(&:round).join('×')} mm)" }.join(', ')
+          end
+          warnings << 'Einzelheiten zur Nacharbeit: Datei …_Wangen_Nacharbeit.txt beim Export.' if boards.any? { |b| !b.notes.empty? }
+          o['sat_mode'] = 'fraesen' unless %w[fraesen markieren].include?(o['sat_mode'])
+        end
         g = gap(o)
         if o['margin'] < o['tool_d'] / 2.0
           warnings << 'Randabstand ist kleiner als der Fräserradius – Konturen am Rand werden angeschnitten.'
@@ -97,7 +123,7 @@ module JTools
           warnings << "#{unplaced.size} Teil(e) passen nicht auf die Rohplatte: " +
                       unplaced.map { |p| "#{p.label} (#{p.size.map { |v| v.round }.join('×')} mm)" }.first(8).join(', ')
         end
-        Result.new(sheets, unplaced, warnings, parts)
+        Result.new(sheets, unplaced, warnings, parts, boards)
       end
 
       def sheet_name(base, sh)
@@ -118,6 +144,25 @@ module JTools
                     pocket_tool: o['pocket_tool'], pocket_d: o['pocket_d'])
           files << path
         end
+        bfiles = {}
+        (res.boards || []).each do |jb|
+          jb.programs.each do |pg|
+            path = File.join(dir, "#{base}_Wange_#{jb.label}_Seite#{pg.side}.tcn")
+            Tcn.write_job(path, jb, pg,
+                          tool_outer: o['tool_outer'], overcut: o['overcut'], climb: o['climb'],
+                          deco_tool: o['deco_tool'], deco_depth: o['deco_depth'])
+            files << path
+            (bfiles[jb.label] ||= []) << File.basename(path)
+          end
+        end
+        notes = (res.boards || []).flat_map(&:notes)
+        unless notes.empty?
+          txt = File.join(dir, "#{base}_Wangen_Nacharbeit.txt")
+          File.open(txt, 'wb') do |io|
+            io.write((["Aufgesattelte Wangen – Hinweise (#{res.boards.size} Wangen)", ''] + notes).join("\r\n").encode('Windows-1252', invalid: :replace, undef: :replace, replace: '_') + "\r\n")
+          end
+          files << txt
+        end
         csv = File.join(dir, "#{base}_Teileliste.csv")
         File.open(csv, 'wb') do |io|
           rows = [%w[Nr Teil Bezeichnung Staerke_mm Laenge_mm Breite_mm Flaeche_m2 Datei X_mm Y_mm Drehung]]
@@ -128,6 +173,10 @@ module JTools
               rows << [p.id, p.label, p.info, fmt(p.thickness), fmt(l), fmt(w), fmt(p.area / 1e6, 3),
                        sheet_name(base, sh) + '.tcn', fmt(pl.x), fmt(pl.y), pl.rot]
             end
+          end
+          (res.boards || []).each do |jb|
+            rows << ['', jb.label, jb.info + ' (Rohling)', fmt(jb.t), fmt(jb.blank[0]), fmt(jb.blank[1]),
+                     fmt(jb.blank[0] * jb.blank[1] / 1e6, 3), bfiles.fetch(jb.label, []).join(' + '), '', '', '']
           end
           res.unplaced.each do |p|
             l, w = p.size
@@ -160,10 +209,28 @@ module JTools
               end
             }
           end,
+          boards: (res.boards || []).map do |jb|
+            {
+              label: jb.label, info: jb.info, thickness: jb.t, blank: jb.blank.map(&:round),
+              outline: jb.outline.map { |q| q.map { |v| v.round(1) } },
+              sides: jb.programs.size,
+              walls: jb.walls.map do |w|
+                { how: w[:how].to_s, rest: (w[:rest] || 0).round,
+                  line: pv_line(jb, w[:u_top][0], w), line2: pv_line(jb, w[:u_top][1], w) }
+              end
+            }
+          end,
           unplaced: res.unplaced.map { |p| { label: p.label, size: p.size.map(&:round), thickness: p.thickness } },
           warnings: res.warnings,
           summary: summary(res, o)
         }
+      end
+
+      # Wandlinie für die Vorschau (auf das Material beschnitten)
+      def pv_line(jb, u, w)
+        seg = Wange3d.mark_lines(jb.sb_ctx, u, w[:z0], w[:z1], false, 1).max_by { |a, b| Geo.dist(a, b) }
+        seg ||= Wange3d.mark_line(jb.sb_ctx, u, w[:z0], w[:z1])
+        seg.map { |q| q.map { |v| v.round(1) } }
       end
 
       def summary(res, o)
@@ -174,6 +241,11 @@ module JTools
         by_t = res.sheets.group_by(&:thickness).map do |t, ss|
           area = ss.map { |s| s.placements.map { |pl| pl.part.area }.sum }.sum
           ["Platten #{fmt(t)} mm", ss.size, format('%.0f %% Ausnutzung', 100.0 * area / (ss.size * o['plate_l'] * o['plate_w']))]
+        end
+        bs = res.boards || []
+        unless bs.empty?
+          rows << ['Aufgesattelte Wangen (3D, je ein Programm)', bs.size,
+                   bs.sum { |b| b.programs.size }.to_s + ' TCN' + (bs.any? { |b| b.programs.size > 1 } ? ' (mit Wenden)' : '')]
         end
         rows + by_t
       end

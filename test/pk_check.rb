@@ -1,6 +1,6 @@
 require_relative 'su_mock'
 $LOAD_PATH.unshift File.expand_path('../src', __dir__)
-%w[params geometry fit stringers builder parts nesting tcn cnc].each { |f| require "jt_treppenbau/#{f}" }
+%w[params geometry fit stringers builder parts nesting tcn wange3d cnc].each { |f| require "jt_treppenbau/#{f}" }
 include JTools::Treppenbau
 def segd(p, a, b)
   dx = b[0]-a[0]; dy = b[1]-a[1]; l = dx*dx+dy*dy

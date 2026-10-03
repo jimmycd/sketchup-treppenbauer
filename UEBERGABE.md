@@ -1,14 +1,15 @@
-# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.6.0, 02.10.2026)
+# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.7.0, 03.10.2026 – Branch `wange-schraegfraesung`)
 
 ## Was es ist
 SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Export nach TCN (TpaCAD), angelehnt an Jürgens Plugin **dxf4tcn**.
 
 ## Dateien in diesem Ordner (E:\sketchup-treppe)
-- `treppenbau_2.6.0.rbz` – aktuelle installierbare Version 2.6.0 (2.5.0, 2.4.0 und 2.3.0 nur noch in der Git-Historie; ab 2.3.0 Versionsnummer im Dateinamen; `_9` = 2.0.0, `_8` = 1.5.3, `_1` = 1.1.0 … `_4` = 1.4.0, `_5` = 1.5.0, `_6` = 1.5.1, `_7` = 1.5.2)
-- `src/` + `test/` – **Arbeitskopie** der Quellen (Stand 2.6.0), wird vom Entwickler-Loader direkt geladen
+- `treppenbau_2.7.0.rbz` – Version 2.7.0 aus Branch `wange-schraegfraesung` (noch nicht in `main`); `treppenbau_2.6.0.rbz` = Stand `main` (2.5.0, 2.4.0 und 2.3.0 nur noch in der Git-Historie; ab 2.3.0 Versionsnummer im Dateinamen; `_9` = 2.0.0, `_8` = 1.5.3, `_1` = 1.1.0 … `_4` = 1.4.0, `_5` = 1.5.0, `_6` = 1.5.1, `_7` = 1.5.2)
+- `src/` + `test/` – **Arbeitskopie** der Quellen (Stand 2.7.0 im Branch `wange-schraegfraesung`), wird vom Entwickler-Loader direkt geladen
 - `jt_aa_treppenbau_dev.rb` – Entwickler-Loader (in den SketchUp-Plugins-Ordner kopieren, lädt aus `E:\sketchup-treppe\src`)
 - `treppenbau_quellen_tests_9.zip` – Quellcode + Tests Stand 2.0.0 (`_8` = 1.5.3, `_7` = 1.5.2, `_6` = 1.5.1, `_5` = 1.5.0, ohne Nummer = 1.4.0)
 - `_to_delete/` – Debug-Plots, kann gelöscht werden
+- `tcn_test/` – Testprogramme Seitenaggregat (A–D, `gen_tests.rb`, `check_tests.py`, README) und Beispiel-Export `E_beispiel_l_wendel/`
 - Referenz dxf4tcn: `E:\sketchup-dxf2tcn\dxf4tcn_1.rbz` (TCN-Format, Werkzeuge), Beispiel `Kirmes 26 Leuchtturm.tcn`
 - Verwandt: `E:\cvs2tcn` (csv2tcn, OpenCutList-Integration)
 
@@ -24,6 +25,7 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 | `stringers.rb` | **neu**: Wangen aus geraden Brettern (eingestemmt + aufgesattelt), gemeinsam für 3D und CNC |
 | `builder.rb` | SketchUp-Geometrie (Stufen, Setzstufen, Wangen, Sattelwangen, Holm, Massiv, Geländer, Spindel, Gehlinie, Decke/Treppenloch, Raumumriss) |
 | `dialog.rb` + `ui/dialog.html` | Parameterdialog (HtmlDialog) mit SVG-Grundriss (Raum, Wände, Treppenloch), Live-Update |
+| `wange3d.rb` | **neu 2.7.0**: aufgesattelte Wangen als 3D-Bearbeitung, je Wange ein TCN-Programm (Ausräumen, Seitenaggregat, Markierungen, Wenden) |
 | `parts.rb` | Zerlegung in flache Frästeile (mm), Wangen abgewickelt mit Nuten (exakte Ausstemmung), Sattelwangen; Modul `Pockets` (Vereinigung, Ausräumbahnen) |
 | `nesting.rb` | Raster-Nesting mit Bitmasken je Zeile, 0/180° (Faser) oder 0/90/180/270° |
 | `tcn.rb` | TCN-Writer (Kopf identisch dxf4tcn), Gravur r0/r1, Nuten (Bahnen aus `parts.rb`), Außenkontur zuletzt |
@@ -31,6 +33,21 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
+
+## Version 2.7.0 (Branch `wange-schraegfraesung`) – aufgesattelte Wangen: schräge Stöße, 3D-CNC (fehler.md Nr. 7)
+- **Fehler:** Im Wendelbereich (und bei konischen Läufen / schräger Antrittswand) lagen Stufe und aufgesattelte Wange ineinander: die senkrechte Ausklinkung saß dort, wo die Stufenkante die **Brettmitte** kreuzt; die Kante läuft aber schräg über das Brett (Versatz t/2·cot α).
+- **Lösung nach Standard:** Wange wird ausgeklinkt (Stufe unverändert), die Stoßfläche folgt der Stufenkante **schräg durch die Brettdicke**. Gleiches für schräge Brettenden (Antritt/Austritt) und Ecken.
+- **Geometrie (`stringers.rb#sattel`):** je Brett zwei Flächenumrisse (`sb[:faces]` bei −t/2 / +t/2 entlang `Geo.right(dir)`, gleiche Punktzahl, `sb[:ntop]` = Punkte der Oberkante); Lage jeder Ausklinkung/jedes Endes auf beiden Flächen (`sat_face_polys`, `line_cross`, `board_cross`). Restbreite an der ungünstigeren (hinteren) Ecke (`face_hit`). Sonderfälle: Ausklinkung im Bereich eines schrägen Brettendes (Brett endet dort), Eckstück am Podest, das in die vorige Stufe/Setzstufe ragt (Hindernisse = Tritt-/Setzstufen-Grundrisse, `face_intervals`, Anfangskante wird verschoben) – vorher Durchdringung bis 2 cm bei Podest-Innenecken mit Setzstufen.
+- **Neuer Parameter `sat_joint`** „Ecken der aufgesattelten Wange“: `gehrung` (Standard, Stoß auf der Winkelhalbierenden) / `stumpf` (wie bisher, jetzt mit schrägen, passgenauen Enden). Ältere Treppen bekommen beim Laden „Gehrung“.
+- **3D (`builder.rb#lprism`):** Brett als Körper aus den zwei Umrissen (Seitenflächen eben bzw. trianguliert, entartete Fläche erlaubt).
+- **CNC (`wange3d.rb`, `tcn.rb#write_job`, `cnc.rb`):** aufgesattelte Wangen mit Flächenumrissen werden **nicht mehr verschachtelt**, sondern je Wange ein Programm aus rechteckigem Rohling (`…_Wange_SA1_Seite1.tcn`, ggf. `_Seite2`). Ablauf: Gravur/Markierungen → **Auflager aus dem Vollen ausräumen** (alles oberhalb der Auflager und hinter den Brettenden, Zeilen parallel zu den Auflagern, kein loses Abfallstück) → **Schrägen mit dem Seitenaggregat** (waagerechte Spindel in Richtung der Treppen-Senkrechten, C-Achse; je Wand eine Hilfsfläche `GEO/GSIDE#7…`, Bahnen parallel zur Wand außen beginnend, max. 1 mm unter die Unterseite, Zustellung entlang der Achse) → **Außenkontur zuletzt** (auf der zuletzt bearbeiteten Seite).
+  - Optionen im CNC-Dialog: „Schräge Stöße“ = *Aggregat fräsen* / *nur markieren*; „Wenden“ an/aus (Seite 2 = um die Y-Achse gewendet, Ausrichtung an den Rohlingskanten); Werkzeug 15001, Ø 16, nutzbare Länge 167, Freiraum 5, Zustellung 50, Rohling-Zugabe 15 mm.
+  - Seite 1 oben = Fläche mit dem meisten von oben erreichbaren Keil; Schrägen mit umgekehrter Neigung → Seite 2 (Wenden) oder Markierung „unten bis hier“.
+  - Reichweite: Fläche knapp über dem Material (z oben + Freiraum), Spitze höchstens bis Länge − Freiraum → bei 18,3 cm Steigung bleiben unten ca. 21 mm → **Markierung** (Gravur r0/r1, auf das Material beschnitten) + Querstrich an der Grenze; hohe Brettenden (Gehrung innen) entsprechend mehr. Liste in `…_Wangen_Nacharbeit.txt`, Kurzfassung in den Hinweisen; Rohling in der Teileliste; Warnung, wenn Rohling größer als Rohplatte.
+  - Vorschau im Dialog: je Wange Rohling + Umriss, Schrägen grün (Seite 1), blau (Seite 2), rot (markiert).
+- **TpaCAD noch ungeprüft:** Richtung von Fläche 5 / Hilfsflächen (rechtshändig X × Y = Normale), `GEO`-Block, Reihenfolge (WS) – siehe `tcn_test/README.md`; Ursprung der Hilfsflächen liegt teils außerhalb des Rohlings.
+- Tests neu: `sattel_stufen_test.rb` (352 Fälle: gerade/kurve × Gehrung/stumpf, alle Nicht-Wendelformen, frei/Raum mit schrägen Wänden, mit/ohne Setzstufen: keine Durchdringung Wange ↔ Tritt-/Setzstufe an 5 Schnitten über die Dicke, alle Bretter mit Flächenumrissen; Aufruf je Form/Ecke `ruby sattel_stufen_test.rb gerade gehrung`), `sattel_build_test.rb` (2464 Körper geschlossen), `sattel_cnc_test.rb` (alle Formen × fräsen/markieren × wenden: Ausräumen nie näher als r an der Wange, Aggregat nie im Material, Keil entfernt, Tiefe ≤ Werkzeuglänge, Export). `sattel_test.rb` prüft Überlappung jetzt mit den Flächenumrissen. build/stringer/fit/box/antritt/austritt/switch/kite/pk_check/reload unverändert ohne Fehler; cnc_test: SI1 wird jetzt als eigenes Programm exportiert statt „passt nicht“. Vorschau-Mock `cmock_sattel.rb`, Plot `dumpjob.rb` + `plotjob.py`.
+- **Offen:** Anfahrt der Schrägen von unten (hohe Brettenden), eingestemmte Wangen (Gehrungen, schräge Enden, Nutwände im Wendelbereich) noch nicht umgestellt; Test in TpaCAD.
 
 ## Version 2.6.0 (treppenbau_2.6.0.rbz) – Umschalten Raum ↔ Parameter ohne Änderung (fehler.md Nr. 6)
 - Beim Umschalten von „Ermittlung“ bleibt die Treppe gleich; danach Feinjustierung im anderen Modus möglich. Dialog ruft `switch_mode` → `Transfer.switch(p, mode)` → `TB.onSwitched` (Werte, Meldung in der Statuszeile: „Treppe unverändert“ bzw. Abweichung in cm).
@@ -154,7 +171,7 @@ Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`
 - Unter den Stufen, um `sat_inset` eingerückt, Dicke `sat_t`; Sägezahn-Oberkante (Auflager, senkrechte Ausklinkung hinter Setzstufe/Unterschneidung); gerade Unterkante `sat_rest` rechtwinklig unter den inneren Ecken; an Podesten eigenes Brett. CNC-Export als Wangenteil `SA…/SI…` (ohne Nuten).
 
 ## Tests (ohne SketchUp, Ruby 3.x)
-In `test/`: `su_mock.rb`, `switch_test.rb` (Umschalten Raum ↔ Parameter), `austritt_test.rb` (Austrittspodest), `build_test.rb` (alle Formen × Seiten-Kombinationen × frei/Raum mit schrägen Wänden, prüft geschlossene Körper), `plan_test.rb`, `fit_test.rb` (Raumfälle inkl. Winkel, Antritt fest, Treppenloch), `stringer_test.rb` (Überstand ≥ Vorgabe, konstante Breite, Mindestabstand unten), `kite_test.rb` (Drachenstufen), `cnc_test.rb`, `tcncheck.rb`, Plots `plotfit2.py`, `plotboards.rb/.py`, `dump3d.rb` + `render1.py`, Dialog-Screenshots `fmock2.rb` + `shotx.js` (Playwright).
+In `test/`: `su_mock.rb`, `sattel_stufen_test.rb`, `sattel_build_test.rb`, `sattel_cnc_test.rb` (aufgesattelte Wangen 2.7.0), `switch_test.rb` (Umschalten Raum ↔ Parameter), `austritt_test.rb` (Austrittspodest), `build_test.rb` (alle Formen × Seiten-Kombinationen × frei/Raum mit schrägen Wänden, prüft geschlossene Körper), `plan_test.rb`, `fit_test.rb` (Raumfälle inkl. Winkel, Antritt fest, Treppenloch), `stringer_test.rb` (Überstand ≥ Vorgabe, konstante Breite, Mindestabstand unten), `kite_test.rb` (Drachenstufen), `cnc_test.rb`, `tcncheck.rb`, Plots `plotfit2.py`, `plotboards.rb/.py`, `dump3d.rb` + `render1.py`, Dialog-Screenshots `fmock2.rb` + `shotx.js` (Playwright).
 Paket bauen: im Ordner `src`: `zip -r treppenbau.rbz jt_treppenbau.rb jt_treppenbau`
 
 ## Noch nicht in SketchUp/TpaCAD getestet

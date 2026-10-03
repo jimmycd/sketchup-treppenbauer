@@ -1,6 +1,6 @@
 require_relative 'su_mock'
 $LOAD_PATH.unshift File.expand_path('../src', __dir__)
-%w[params geometry fit stringers builder parts nesting tcn cnc].each { |f| require "jt_treppenbau/#{f}" }
+%w[params geometry fit stringers builder parts nesting tcn wange3d cnc].each { |f| require "jt_treppenbau/#{f}" }
 require 'json'; require 'benchmark'
 include JTools::Treppenbau
 o = Cnc.normalize({'engrave'=>true})

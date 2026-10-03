@@ -44,3 +44,9 @@ Schräge schon frei).
 - Hilfsfläche: `GEO{ ::NF=1 GSIDE#7{ #1 #2 #3 #Z }GSIDE }GEO` vor den SIDE-Blöcken,
   rechtshändig (X × Y = Normale nach außen), `#Z=300`.
 - `#201=1 #203=1 #1001=100` wie bei den Fräsungen von oben.
+
+## E_beispiel_l_wendel/ – Export aus dem Plugin (2.7.0)
+Echter Export einer L-Treppe mit Wendelstufen, beide Seiten aufgesattelt (Optionen: Aggregat fräsen,
+Wenden ein, Gravur ein): je Wange `…_Seite1.tcn` (+ `…_Seite2.tcn`), `…_Wangen_Nacharbeit.txt`,
+`l_wendel.png` = Draufsicht aller Programme (blau = Ausräumen, grün = Aggregatachse je Schräge,
+rot = Markierung/Gravur, dunkel = Außenkontur zuletzt). Erst testen, wenn A/B in TpaCAD passen.

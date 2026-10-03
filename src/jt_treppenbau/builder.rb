@@ -161,9 +161,89 @@ module JTools
           g.name = 'Pfosten' if g
         end
         r[:sattel].each do |sb|
-          g = hprism(grp.entities, sb[:origin], sb[:dir], sb[:poly], sb[:t], m)
+          g = if sb[:faces]
+                lprism(grp.entities, sb[:origin], sb[:dir], sb[:faces][0], sb[:faces][1], sb[:t], m)
+              else
+                hprism(grp.entities, sb[:origin], sb[:dir], sb[:poly], sb[:t], m)
+              end
           g.name = "Aufgesattelte Wange #{sb[:which] == :outer ? 'außen' : 'innen'} #{sb[:nr]}" if g
         end
+      end
+
+      # Senkrecht stehendes Brett mit verschiedenen Umrissen auf den beiden
+      # Flächen (schräge Stöße, Gehrungen): pa bei −t/2, pb bei +t/2 entlang
+      # Geo.right(dir), gleiche Punktzahl (Punkt i gehört zu Punkt i).
+      def lprism(ents, origin, dir, pa, pb, t, material = nil)
+        tol = 0.02
+        same = ->(p, q) { (p[0] - q[0]).abs < tol && (p[1] - q[1]).abs < tol }
+        # fast gleiche Nachbarpunkte je Fläche exakt gleichsetzen (sonst
+        # entstehen Splitterflächen, die SketchUp nicht anlegt)
+        snap = lambda do |pl|
+          out = []
+          pl.each { |q| out << (!out.empty? && same.(q, out[-1]) ? out[-1] : q) }
+          out[-1] = out[0] if out.size > 1 && same.(out[-1], out[0])
+          out
+        end
+        pa = snap.(pa); pb = snap.(pb)
+        same = ->(p, q) { p[0] == q[0] && p[1] == q[1] }
+        a = []; b = []
+        pa.each_index do |i|
+          next if !a.empty? && same.(pa[i], a[-1]) && same.(pb[i], b[-1])
+          a << pa[i]; b << pb[i]
+        end
+        while a.size > 1 && same.(a[0], a[-1]) && same.(b[0], b[-1])
+          a.pop; b.pop
+        end
+        return nil if a.size < 3
+        sa = Geo.signed_area(a); sb_ = Geo.signed_area(b)
+        if (sa.abs > sb_.abs ? sa : sb_) < 0
+          a.reverse!; b.reverse!
+        end
+        nrm = Geo.right(dir)
+        mk = lambda do |poly, off|
+          poly.map do |x, z|
+            q = Geo.add(Geo.add(origin, Geo.mul(dir, x)), Geo.mul(nrm, off))
+            pt3(q[0], q[1], z)
+          end
+        end
+        a3 = mk.(a, -t / 2.0); b3 = mk.(b, t / 2.0)
+        g = ents.add_group
+        e = g.entities
+        face(e, a3, vec(-nrm[0], -nrm[1], 0)) if Geo.signed_area(a).abs > 0.01
+        face(e, b3, vec(nrm[0], nrm[1], 0)) if Geo.signed_area(b).abs > 0.01
+        n = a.size
+        n.times do |i|
+          j = (i + 1) % n
+          ex = (a[j][0] + b[j][0] - a[i][0] - b[i][0]) / 2.0
+          ez = (a[j][1] + b[j][1] - a[i][1] - b[i][1]) / 2.0
+          hint = vec(dir[0] * ez, dir[1] * ez, -ex)
+          da = same.(a[i], a[j]); db = same.(b[i], b[j])
+          next if da && db
+          if da
+            face(e, [a3[i], b3[j], b3[i]], hint)
+          elsif db
+            face(e, [a3[i], a3[j], b3[i]], hint)
+          elsif planar?([a3[i], a3[j], b3[j], b3[i]])
+            face(e, [a3[i], a3[j], b3[j], b3[i]], hint)
+          else
+            face(e, [a3[i], a3[j], b3[j]], hint)
+            face(e, [a3[i], b3[j], b3[i]], hint)
+          end
+        end
+        soften(e)
+        g.material = material if material
+        g
+      end
+
+      # vier Punkte (Point3d) in einer Ebene?
+      def planar?(pts)
+        c = pts.map { |q| [q.x, q.y, q.z] }
+        d = ->(p, q) { [q[0] - p[0], q[1] - p[1], q[2] - p[2]] }
+        v1 = d.(c[0], c[1]); v2 = d.(c[0], c[2]); v3 = d.(c[0], c[3])
+        n = [v1[1] * v2[2] - v1[2] * v2[1], v1[2] * v2[0] - v1[0] * v2[2], v1[0] * v2[1] - v1[1] * v2[0]]
+        l = Math.sqrt(n.map { |x| x * x }.sum)
+        return false if l < 1e-9
+        (n[0] * v3[0] + n[1] * v3[1] + n[2] * v3[2]).abs / l < 0.0005
       end
 
       # Senkrecht stehendes Brett: Umriss poly [[x, z], ...] in der Ebene durch

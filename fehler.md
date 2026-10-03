@@ -6,3 +6,4 @@
  - ok
 5) füge eine option ein, um einen abstand des austritts von rand des treppenloches eingeben zu können (was ein podest ergit). sollte ein podest entstehen, kontruiere dieses mit. standardwert ist 0, dh der austritt ist immer am rand des treppenlochs. - ok
 6) wenn planung mit raummmassen erfolgt ist, müssen alle masse/parameter  bei umschalten auf "treppe aus paramtern berechnen" ich nicht ändern und umgekehrt - so soll eine feinjustieruntg der treppe möglich sein - ok
+7) aufgesattelte wangen: im wendelbereich fehlen die ausklinkungen - stufe und wange liegen ineinander. umsetzung nach standard (schräge stoßfläche), cnc je wange 3d mit seitenaggregat, optionen fräsen/markieren + wenden - umgesetzt in 2.7.0 (branch wange-schraegfraesung), test in tpacad offen

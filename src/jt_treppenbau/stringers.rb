@@ -816,8 +816,28 @@ module JTools
           end
           cuts = (0...plan.treads).map { |k| vat.(lw[k] + cut_ext) }
           v_end = vat.(plan.wtot)
+          # Stufenlinien der Ausklinkungen (Grundriss) und Austrittslinie –
+          # für die Lage auf den beiden Brettflächen (schräge Stöße)
+          clines = (0...plan.treads).map { |k| plan.line([lw[k] + cut_ext, plan.wtot].min) }
+          # Tritt- und Setzstufen als Hindernisse (Grundriss, Unterseite)
+          obst = (0...plan.treads).map { |k| [plan.region(lw[k], [lw[k + 1] + cut_ext, plan.wtot].min).map(&:first), (k + 1) * plan.h - d] }
+          if p['risers']
+            (0...plan.treads).each do |k|
+              wa = lw[k] + p['nosing'].to_f
+              obst << [plan.region(wa, wa + p['riser_t'].to_f).map(&:first), k * plan.h]
+            end
+          end
+          eline = plan.line(plan.wtot)
           zt = (0...plan.treads).map { |k| (k + 1) * plan.h - d }
-          corners = (0...plan.treads - 1).map { |k| [cuts[k + 1], zt[k]] } + [[v_end, zt[-1]]]
+          # innere Ecken für die Restbreite an der hinteren der beiden
+          # Flächenlagen (Unterkante steigt -> dort ist der Abstand kleiner)
+          fpl = [-1, 1].map { |g| src.each_with_index.map { |q, i| Geo.add(q, Geo.mul(mn[i], -(off + g * t / 2.0))) } }
+          chi = (0...plan.treads).map do |k|
+            l = clines[k]
+            o_, dv = which == :outer ? [l[:in], Geo.sub(l[:out], l[:in])] : [l[:out], Geo.sub(l[:in], l[:out])]
+            ([cuts[k]] + fpl.map { |fp| face_hit(fp, sp, o_, dv) }.compact).max
+          end
+          corners = (0...plan.treads - 1).map { |k| [chi[k + 1], zt[k]] } + [[v_end, zt[-1]]]
           # gerade Abschnitte der Mittellinie
           segs = []
           pts = sp.pts; cum = sp.cum
@@ -873,8 +893,20 @@ module JTools
             pa = sp.at(ra[:v1]); pb = sp.at(rb[:v0]); dq = Geo.sub(pb, pa)
             xa = Geo.cross(dq, rb[:dir]) / cr
             yb = Geo.cross(dq, ra[:dir]) / cr
-            ra[:b] = ra[:v1] + xa + t / 2.0 / sn
-            rb[:a] = rb[:v0] + yb + t / 2.0 * (1.0 + cs_) / sn
+            if p['sat_joint'] == 'stumpf'
+              ra[:b] = ra[:v1] + xa + t / 2.0 / sn
+              rb[:a] = rb[:v0] + yb + t / 2.0 * (1.0 + cs_) / sn
+              # Flächen: unteres Brett bis zur Außenfläche des oberen, oberes
+              # bis zur Seitenfläche des unteren (schräge Enden, passgenau)
+              ra[:end_f] = [-1, 1].map { |f| [-1, 1].map { |g| board_cross(sp, ra, f * t / 2.0, board_face(sp, rb, g * t / 2.0)) }.compact.max }
+              rb[:start_f] = [-1, 1].map { |f| [-1, 1].map { |g| board_cross(sp, rb, f * t / 2.0, board_face(sp, ra, g * t / 2.0)) }.compact.max }
+            else
+              # Gehrung: beide Bretter enden auf der Winkelhalbierenden
+              ra[:b] = ra[:v1] + xa
+              rb[:a] = rb[:v0] + yb
+              ra[:end_f] = [-1, 1].map { |f| board_cross(sp, ra, f * t / 2.0, board_face(sp, rb, f * t / 2.0)) }
+              rb[:start_f] = [-1, 1].map { |f| board_cross(sp, rb, f * t / 2.0, board_face(sp, ra, f * t / 2.0)) }
+            end
             rb[:joint] = ra
           end
           sat_curve(recs, corners, rest) if curve
@@ -939,14 +971,216 @@ module JTools
             next if poly.size < 3 || Geo.signed_area(poly).abs < 1.0
             no += 1
             o = Geo.add(sp.at(r[:v0]), Geo.mul(r[:dir], v0 - r[:v0]))
+            faces = sat_face_polys(sp, r, top, bot, cuts, clines, eline, v_end, t, obst)
             sb = { which: which, side: side, origin: o, dir: r[:dir], len: v1 - v0,
                    poly: poly, t: t, nr: no }
+            if faces
+              sb[:ntop] = faces.pop
+              sb[:faces] = faces.map { |fp| fp.map { |v, z| [v - v0, z] } }
+            else
+              res[:warnings] << 'Aufgesattelte Wange: schräge Stöße an einem Brett nicht darstellbar – senkrecht an der hinteren Lage geschnitten.' unless res[:warnings].any? { |w| w.start_with?('Aufgesattelte Wange: schräge') }
+            end
             # Faserrichtung entlang der Sehne der Unterkante (geschwungen)
             sb[:grain] = [v1 - v0, r[:bf].(v1) - r[:bf].(v0)] if r[:bf]
             res[:sattel] << sb
           end
         end
       end
+
+      # --- schräge Stöße der aufgesattelten Wange --------------------------
+
+      # Brettfläche als Gerade: Punkt und Richtung (Versatz off entlang
+      # Geo.right(dir) von der Mittellinie).
+      def board_face(sp, r, off)
+        [Geo.add(sp.at(r[:v0]), Geo.mul(Geo.right(r[:dir]), off)), r[:dir]]
+      end
+
+      # Lage (Koordinate v der Mittellinie) des Schnitts der Brettfläche (off)
+      # mit einer Geraden [Punkt, Richtung]; nil wenn parallel.
+      def board_cross(sp, r, off, line)
+        o, d = board_face(sp, r, off)
+        q, e = line
+        den = Geo.cross(d, e)
+        return nil if den.abs < 1e-9
+        r[:v0] + Geo.cross(Geo.sub(q, o), e) / den
+      end
+
+      # Lage auf der Brettfläche off für eine Stufenlinie {in:, out:}; nil wenn
+      # parallel oder der Schnitt weit außerhalb der Linie liegt.
+      def line_cross(sp, r, off, l)
+        e = Geo.sub(l[:out], l[:in])
+        o, d = board_face(sp, r, off)
+        den = Geo.cross(d, e)
+        return nil if den.abs < 1e-9 * Geo.len(e)
+        q = Geo.cross(Geo.sub(l[:in], o), d) / den
+        return nil if q < -0.5 || q > 1.5
+        r[:v0] + Geo.cross(Geo.sub(l[:in], o), e) / den
+      end
+
+      # Umrisse auf den beiden Brettflächen (−t/2, +t/2 entlang Geo.right(dir))
+      # aus dem Umriss der Mittelebene: senkrechte Stöße an Stufenlinien,
+      # Brettenden an Antritt/Austritt/Podest und Ecken werden auf die Lage der
+      # jeweiligen Fläche verschoben. Gleiche Punktzahl wie der Mittelumriss
+      # (Seitenflächen eben). nil, wenn ein Flächenumriss ungültig würde.
+      def sat_face_polys(sp, r, top, bot, cuts, clines, eline, v_end, t, obst)
+        a = r[:a]; b = r[:b]
+        eps = 1e-6
+        offs = [-t / 2.0, t / 2.0]
+        delta = lambda do |l, off|
+          c = line_cross(sp, r, 0.0, l)
+          f = line_cross(sp, r, off, l)
+          c && f ? f - c : 0.0
+        end
+        kat = ->(v) { cuts.index { |cv| (cv - v).abs < 1e-4 } }
+        lo = offs.each_with_index.map do |off, i|
+          a + if r[:start_f] then r[:start_f][i].to_f - a
+              elsif (k = kat.(a)) then delta.(clines[k], off)
+              else 0.0
+              end
+        end
+        hi = offs.each_with_index.map do |off, i|
+          b + if r[:end_f] then r[:end_f][i].to_f - b
+              elsif (k = kat.(b)) then delta.(clines[k], off)
+              elsif (b - v_end).abs < 1e-4 then delta.(eline, off)
+              else 0.0
+              end
+        end
+        top = top.dup
+        # Ausklinkungen im Mittelumriss mit ihrer Lage auf beiden Flächen
+        steps = lambda do
+          (0...top.size - 1).select { |i| (top[i][0] - top[i + 1][0]).abs < 1e-9 && top[i + 1][1] > top[i][1] + 1e-9 && kat.(top[i][0]) }
+                            .map { |i| [i, offs.map { |off| top[i][0] + delta.(clines[kat.(top[i][0])], off) }] }
+        end
+        # Ausklinkung im Bereich eines schrägen Brettanfangs (liegt auf einer
+        # Fläche vor dem Anfang): der niedrige Teil davor entfällt
+        st = steps.().select { |_, pos| pos.each_with_index.any? { |q, j| q <= lo[j] + eps } }.last
+        if st
+          i, pos = st
+          top = [[a, top[i + 1][1]]] + top[(i + 2)..-1]
+          lo = lo.each_with_index.map { |q, j| [q, pos[j]].max }
+        end
+        # Stufen/Setzstufen, deren Unterseite tiefer als der Brettanfang liegt
+        # und in die eine Fläche am Anfang hineinragt (z. B. Eckstück am Podest
+        # neben der Ecke der vorigen Stufe): Fläche beginnt erst dahinter
+        z0 = top[0][1]
+        offs.each_with_index do |off, j|
+          6.times do
+            moved = false
+            obst.each do |poly, zb|
+              next unless zb < z0 - 1e-6
+              face_intervals(sp, r, off, poly).each do |s0, s1|
+                next unless s0 <= lo[j] + 1e-4 && s1 > lo[j] + 1e-4 && s1 <= (lo[j] + hi[j]) / 2.0
+                lo[j] = s1
+                moved = true
+              end
+            end
+            break unless moved
+          end
+        end
+        # Ecken solcher Hindernisse innerhalb der Brettdicke: Anfangskante
+        # (Gerade zwischen den Flächen) parallel nach hinten schieben
+        o0, = board_face(sp, r, 0.0)
+        nr = Geo.right(r[:dir])
+        mid = (lo.sum + hi.sum) / 4.0
+        push = 0.0
+        obst.each do |poly, zb|
+          next unless zb < z0 - 1e-6
+          poly.each do |q|
+            w = Geo.dot(Geo.sub(q, o0), nr)
+            next unless w.abs < t / 2.0 - 1e-6
+            u = r[:v0] + Geo.dot(Geo.sub(q, o0), r[:dir])
+            fr = (w + t / 2.0) / t
+            ul = lo[0] + (lo[1] - lo[0]) * fr
+            next unless u > ul + 1e-6 && u <= mid
+            # nur, wenn die Ecke wirklich im Hindernis vor dem Brett liegt
+            push = [push, u - ul].max
+          end
+        end
+        lo = lo.map { |x| x + push } if push > 0
+        # Ausklinkung im Bereich eines schrägen Brettendes (Gehrung): liegt sie
+        # auf einer Fläche hinter dem Ende, endet das Brett an der Ausklinkung
+        st = steps.().find { |_, pos| pos.each_with_index.any? { |q, j| q >= hi[j] - eps } }
+        if st
+          i, pos = st
+          top = top[0..i] + [[b, top[i][1]]]
+          hi = hi.each_with_index.map { |q, j| [q, pos[j]].min }
+        end
+        hi = hi.each_with_index.map { |q, j| [q, lo[j]].max }   # höchstens zur Linie entartet
+        fs = offs.each_with_index.map do |off, j|
+          mv = lambda do |v, z|
+            u = if (v - a).abs < eps then lo[j]
+                elsif (v - b).abs < eps then hi[j]
+                elsif (k = kat.(v)) then v + delta.(clines[k], off)
+                else v
+                end
+            [[[u, lo[j]].max, hi[j]].min, z]
+          end
+          tp = top.map { |v, z| mv.(v, z) }
+          bp = bot.map { |v, z| mv.(v, z) }
+          # Reihenfolge erhalten: Oberkante steigend, Unterkante fallend
+          return nil unless tp.each_cons(2).all? { |p0, p1| p1[0] >= p0[0] - 1e-6 }
+          return nil unless bp.each_cons(2).all? { |p0, p1| p1[0] <= p0[0] + 1e-6 }
+          pl = tp + bp
+          # Umlaufsinn wie der Mittelumriss (eine Fläche darf zur Linie entarten)
+          return nil if Geo.signed_area(pl) * Geo.signed_area(top + bot) < -1e-6
+          pl
+        end
+        return nil unless fs[0].size == fs[1].size && fs.map { |pl| Geo.signed_area(pl).abs }.max >= 1.0
+        fs << top.size   # Anzahl Punkte der Oberkante (Rest = Unterkante)
+        fs
+      end
+
+      # Abschnitte (Koordinate v) der Brettfläche off, die im Polygon liegen
+      def face_intervals(sp, r, off, poly)
+        o, d = board_face(sp, r, off)
+        ts = []
+        n = poly.size
+        n.times do |i|
+          p0 = poly[i]; p1 = poly[(i + 1) % n]
+          e = Geo.sub(p1, p0)
+          den = Geo.cross(d, e)
+          next if den.abs < 1e-12
+          w = Geo.sub(p0, o)
+          q = Geo.cross(w, d) / den
+          next if q < 0 || q >= 1
+          ts << Geo.cross(w, e) / den
+        end
+        ts.sort!
+        ts.each_slice(2).select { |x| x.size == 2 && x[1] - x[0] > 1e-6 }.map { |s0, s1| [r[:v0] + s0, r[:v0] + s1] }
+      end
+
+      # Schnitt eines Strahls mit einer Brettfläche (Polylinie fp, gleiche
+      # Stützpunkte wie die Mittellinie sp), umgerechnet in die Koordinate v
+      # der Mittellinie (Lot auf die Gerade des zugehörigen Bretts).
+      def face_hit(fp, sp, origin, dir)
+        best = nil
+        cum = sp.cum; cp = sp.pts
+        (0...fp.size - 1).each do |i|
+          p = fp[i]; q = fp[i + 1]
+          e = Geo.sub(q, p)
+          den = Geo.cross(dir, e)
+          next if den.abs < 1e-12
+          w = Geo.sub(p, origin)
+          tt = Geo.cross(w, e) / den
+          u = Geo.cross(w, dir) / den
+          next if u < -1e-7 || u > 1 + 1e-7 || tt <= 1e-9
+          next if best && tt >= best[0]
+          pt = Geo.add(origin, Geo.mul(dir, tt))
+          cd = Geo.norm(Geo.sub(cp[i + 1], cp[i]))
+          best = [tt, cum[i] + Geo.dot(Geo.sub(pt, cp[i]), cd)]
+        end
+        best && best[1]
+      end
+
+      def seg_x?(p1, p2, q1, q2)
+        d1 = Geo.cross(Geo.sub(p2, p1), Geo.sub(q1, p1))
+        d2 = Geo.cross(Geo.sub(p2, p1), Geo.sub(q2, p1))
+        d3 = Geo.cross(Geo.sub(q2, q1), Geo.sub(p1, q1))
+        d4 = Geo.cross(Geo.sub(q2, q1), Geo.sub(p2, q1))
+        ((d1 > 1e-9 && d2 < -1e-9) || (d1 < -1e-9 && d2 > 1e-9)) &&
+          ((d3 > 1e-9 && d4 < -1e-9) || (d3 < -1e-9 && d4 > 1e-9))
+      end
+
 
       # --- geschwungene aufgesattelte Wange -------------------------------
 

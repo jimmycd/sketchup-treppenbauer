@@ -111,6 +111,17 @@
       help:'Tritt- und Setzstufen werden um dieses Maß in die Wangen verlängert, die Wangen erhalten passende Nuten. 0 = keine Nuten.' },
     { g:'Nuten (Einstand in Wange)', key:'pocket_tool', label:'Werkzeug Nutfräser', unit:'Nr', step:1, need:'wange' },
     { g:'Nuten (Einstand in Wange)', key:'pocket_d', label:'Durchmesser Nutfräser', unit:'mm', step:0.5, need:'wange' },
+    { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'sat_mode', label:'Schräge Stöße (Wendelbereich, Enden, Gehrungen)', type:'select', need:'sattel',
+      options:[['fraesen','Aggregat fräsen'],['markieren','nur markieren']],
+      help:'Rohling rechteckig: Auflager aus dem Vollen ausräumen, Schrägen fräsen bzw. markieren, Außenkontur zuletzt. Nicht erreichbare Reste (Werkzeuglänge) werden markiert.' },
+    { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'sat_wenden', label:'Wenden: Schrägen mit umgekehrter Neigung auf Seite 2', type:'bool', need:'sattel',
+      help:'Ein: zweites Programm je Wange nach Wenden um die Y-Achse (Anschlag an den Rohlingskanten), Außenkontur dann auf Seite 2. Aus: diese Schrägen werden markiert.' },
+    { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'agg_tool', label:'Werkzeug Seitenaggregat', unit:'Nr', step:1, need:'sattel' },
+    { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'agg_d', label:'Durchmesser', unit:'mm', step:0.5, need:'sattel' },
+    { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'agg_len', label:'nutzbare Länge', unit:'mm', step:1, need:'sattel' },
+    { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'agg_clear', label:'Freiraum Aggregat über dem Material', unit:'mm', step:1, need:'sattel' },
+    { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'agg_step', label:'Zustellung entlang der Spindelachse', unit:'mm', step:1, need:'sattel' },
+    { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'blank_margin', label:'Rohling: Zugabe ringsum', unit:'mm', step:1, need:'sattel' },
     { g:'Gravur Teilenummern', key:'engrave', label:'Teilenummern gravieren', type:'bool',
       help:'Einstrich-Gravur der Teilenummer (z. B. T5, WA1) – wie die Verzierungen in dxf4tcn mit r0/r1.' },
     { g:'Gravur Teilenummern', key:'deco_tool', label:'Werkzeug (r0 „werkzeug“)', unit:'Nr', step:1 },
@@ -138,6 +149,7 @@
       if (f.need === 'notmassiv') return c.construction !== 'massiv';
       if (f.need === 'risers') return c.construction !== 'massiv' && c.risers;
       if (f.need === 'rail') return c.rail !== 'keins';
+      if (f.need === 'sattel') return !!c.sattel;
       return true;
     },
 
@@ -176,6 +188,11 @@
         b.onclick = function () { self.call('tpacad'); };
         ctl.appendChild(el); ctl.appendChild(b); row.appendChild(ctl);
         return row;
+      } else if (f.type === 'select') {
+        el = document.createElement('select');
+        f.options.forEach(function (op) { var o = document.createElement('option'); o.value = op[0]; o.textContent = op[1]; el.appendChild(o); });
+        el.value = this.o[f.key];
+        el.onchange = function () { self.o[f.key] = el.value; self.compute(); };
       } else if (f.type === 'bool') {
         el = document.createElement('input'); el.type = 'checkbox'; el.checked = !!this.o[f.key];
         el.onchange = function () { self.o[f.key] = el.checked; self.compute(); };
@@ -220,13 +237,42 @@
       this.status('');
       var self = this;
       r.sheets.forEach(function (s) { box.appendChild(self.sheet(s, r.plate, r.margin)); });
-      if (!r.sheets.length) box.innerHTML = '<div class="sheet">Keine Teile ausgewählt.</div>';
+      (r.boards || []).forEach(function (b) { box.appendChild(self.board(b)); });
+      if (!r.sheets.length && !(r.boards || []).length) box.innerHTML = '<div class="sheet">Keine Teile ausgewählt.</div>';
       $('summary').innerHTML = r.summary.map(function (x) {
         return '<tr><td>' + esc(x[0]) + '</td><td>' + esc(x[1]) + '</td><td>' + esc(x[2]) + '</td></tr>';
       }).join('');
       $('warnings').innerHTML = r.warnings.length
         ? r.warnings.map(function (w) { return '<li class="w">' + esc(w) + '</li>'; }).join('')
         : '<li class="ok">✔ Alle Teile platziert.</li>';
+    },
+
+    // aufgesattelte Wange: eigener Rohling, Schrägen farbig
+    board: function (b) {
+      var L = b.blank[0], W = b.blank[1];
+      var div = document.createElement('div'); div.className = 'sheet';
+      var nm = { mill1:0, mill2:0, mark:0, mark2:0 };
+      b.walls.forEach(function (w) { nm[w.how] = (nm[w.how] || 0) + 1; });
+      div.innerHTML = '<h3>' + esc(b.label) + ' – ' + esc(b.info) + '<span>Rohling ' + L + ' × ' + W + ' × ' + fmt(b.thickness) + ' mm</span>' +
+        '<span>' + (b.sides > 1 ? '2 Programme (wenden)' : '1 Programm') + '</span>' +
+        '<span style="color:#27ae60">Aggregat S1: ' + nm.mill1 + '</span>' + (nm.mill2 ? '<span style="color:#2a6fdb">S2: ' + nm.mill2 + '</span>' : '') +
+        (nm.mark + nm.mark2 ? '<span style="color:#c0392b">markiert: ' + (nm.mark + nm.mark2) + '</span>' : '') + '</h3>';
+      var svg = document.createElementNS(NS, 'svg');
+      var pad = Math.max(L, W) * 0.01;
+      svg.setAttribute('viewBox', (-pad) + ' ' + (-pad) + ' ' + (L + 2 * pad) + ' ' + (W + 2 * pad));
+      var el = function (tag, a) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); svg.appendChild(e); return e; };
+      var Y = function (y) { return W - y; };
+      var P = function (pts) { return pts.map(function (q) { return q[0].toFixed(1) + ',' + Y(q[1]).toFixed(1); }).join(' '); };
+      var sw = Math.max(L, W) / 900;
+      el('rect', { x: 0, y: 0, width: L, height: W, fill: '#f7f5f1', stroke: '#555', 'stroke-width': sw * 1.5 });
+      el('polygon', { points: P(b.outline), fill: COL.stringer, stroke: '#3b2a14', 'stroke-width': sw });
+      var C = { mill1: '#27ae60', mill2: '#2a6fdb', mark: '#c0392b', mark2: '#c0392b' };
+      b.walls.forEach(function (w) {
+        el('polyline', { points: P(w.line), fill: 'none', stroke: C[w.how] || '#000', 'stroke-width': sw * 4 });
+        if (w.how === 'mark2') el('polyline', { points: P(w.line2), fill: 'none', stroke: C.mark2, 'stroke-width': sw * 2, 'stroke-dasharray': (6 * sw) + ',' + (4 * sw) });
+      });
+      div.appendChild(svg);
+      return div;
     },
 
     sheet: function (s, plate, margin) {
