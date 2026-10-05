@@ -2,7 +2,7 @@ $LOAD_PATH.unshift File.expand_path('../src', __dir__)
 %w[params geometry fit].each { |f| require "jt_treppenbau/#{f}" }
 require_relative 'kite_check'
 include JTools::Treppenbau
-fails = 0; total = 0; perr = 0
+fails = 0; total = 0; perr = 0; inval = 0; asym = 0
 base = Params.defaults
 cfgs = []
 %w[l_wendel u_wendel z_wendel].each do |v|
@@ -32,8 +32,26 @@ rooms = []
     end
   end
 end
+# Lage der Ecke vorgegeben (kite_pos, kite_pos2)
+kpos = []
+%w[l_wendel u_wendel z_wendel].each do |v|
+  [80, 100].each do |b|
+    [0, 4].each do |nv|
+      [20, 35, 50, 65, 80].each do |kp|
+        [0, 20].each do |eye|
+          next if v != 'u_wendel' && eye > 0
+          [270, 290].each do |hh|
+            c = { 'variant' => v, 'b' => b, 'nv' => nv, 'eye' => eye, 'H' => hh, 'kite_pos' => kp }
+            c['kite_pos2'] = 100 - kp if v == 'z_wendel'
+            kpos << c
+          end
+        end
+      end
+    end
+  end
+end
 verbose = ARGV.include?('-v')
-(cfgs + rooms).each do |c|
+(cfgs + rooms + kpos).each do |c|
   p = Params.normalize(base.merge(c))
   total += 1
   begin
@@ -43,9 +61,23 @@ verbose = ARGV.include?('-v')
     puts "PlanError #{c}: #{e.message}" if verbose
     next
   end
-  e = KiteCheck.errors(plan)
+  # Innenauftritt <= 0 (z. B. U-Treppe ohne Treppenauge): Geometrie ohnehin ungültig
+  if plan.warnings.any? { |w| w.include?('Geometrie ungültig') }
+    inval += 1
+    next
+  end
+  fr = Layout.kite_fracs(plan).map(&:last)
+  asym += 1 if fr.any? { |f| (f - 0.5).abs > 0.005 }
+  # frei, ohne Vorgabe: L und dreiläufig mittig (U: Gehlinie bleibt, Ecken ggf. außermittig)
+  mid = c['fit_mode'].nil? && c['variant'] != 'u_wendel' && !c['kite_pos']
+  e = KiteCheck.errors(plan, mid: mid)
+  if c['kite_pos']
+    want = [c['kite_pos'] / 100.0]
+    want << c['kite_pos2'] / 100.0 if c['kite_pos2']
+    want.each_with_index { |f, i| e << format('Ecke %d bei %.3f statt %.3f', i + 1, fr[i], f) if fr[i].nil? || (fr[i] - f).abs > 1e-6 }
+  end
   next if e.empty?
   fails += 1
   puts "#{c}: #{e.uniq.first(3).join('; ')}" if verbose || fails < 25
 end
-puts "#{total} Fälle, #{perr} PlanError, #{fails} mit Drachenstufen-Fehlern"
+puts "#{total} Fälle, #{perr} PlanError, #{inval} ungültig (Innenauftritt ≤ 0), #{asym} außermittig, #{fails} mit Drachenstufen-Fehlern"

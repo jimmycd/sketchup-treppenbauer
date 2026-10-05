@@ -531,22 +531,53 @@ module JTools
         plan
       end
 
-      # Gewendelte Läufe: Die Wendelung wird so gelegt, dass jede Ecke genau mittig
-      # in einer Stufe liegt (Drachenstufe, spiegelgleich zur Eckdiagonale).
+      # Gewendelte Läufe: In jeder Ecke liegt eine Drachenstufe (Ecke innerhalb einer
+      # Stufe). Standard: Ecke mittig in der Stufe (spiegelgleich zur Eckdiagonale);
+      # die Teilung darf abweichen (kite_pos bzw. automatisch, wo mittig nicht passt).
       def build_winder(p, n, h, hh, a)
+        plan = nil
+        err = nil
+        begin
+          plan = build_winder1(p, n, h, hh, a, false)
+        rescue PlanError => e
+          err = e
+        end
+        # U-Treppe: Gehlinie bleibt, Ecken außermittig – passt das nicht (Drachenstufe
+        # nicht sauber, kein Platz), wie bisher mit angepasster Gehlinie und mittigen Ecken
+        if p['variant'] == 'u_wendel' && p['kite_pos'].to_f <= 0 && KITE_KEEP_GL && (plan.nil? || kite_bad?(plan))
+          alt = begin
+            build_winder1(p, n, h, hh, a, true)
+          rescue PlanError
+            nil
+          end
+          plan = alt if alt && (plan.nil? || !kite_bad?(alt))
+        end
+        raise err if plan.nil?
+        plan
+      end
+
+      def build_winder1(p, n, h, hh, a, kite_mid)
         plan = Plan.new
         plan.params = p; plan.variant = p['variant']; plan.n = n; plan.h = h; plan.H = hh
-        build_flights(plan, p, n, a)
+        build_flights(plan, p, n, a, kite_mid)
         report_kites(plan)
         plan
+      end
+
+      # Drachenstufe nicht sauber oder Innenauftritt <= 0
+      def kite_bad?(plan)
+        !kite_errors(plan).empty? || plan.warnings.any? { |w| w.start_with?('Innenauftritt ≤ 0') }
       end
 
       # Drachenstufen prüfen und als Info ausgeben
       def report_kites(plan, hint = '(Lage der Wendelung oder Anzahl verzogener Stufen ändern)')
         errs = kite_errors(plan)
         plan.warnings << "Drachenstufe nicht sauber: #{errs.first} #{hint}." unless errs.empty?
-        kites = kite_steps(plan)
-        plan.info << ['Drachenstufe(n) (mittig auf der Ecke)', kites.map { |k| "Nr. #{k}" }.join(', ')] unless kites.empty?
+        fr = kite_fracs(plan)
+        return if fr.empty?
+        mid = fr.all? { |_k, f| (f - 0.5).abs < 0.005 }
+        txt = fr.map { |k, f| mid ? "Nr. #{k}" : format('Nr. %d (Ecke bei %.0f %%)', k, f * 100.0) }.join(', ')
+        plan.info << [mid ? 'Drachenstufe(n) (mittig auf der Ecke)' : 'Drachenstufe(n) (Lage der Ecke im Auftritt)', txt]
       end
 
       # Nummern der Drachenstufen (Stufe, in der die Ecke liegt)
@@ -557,13 +588,25 @@ module JTools
         end.compact.uniq
       end
 
-      # Prüfung der Drachenstufen: Ecke mittig in einer Stufe, Stufe symmetrisch,
-      # keine kleinen Haken an Innen- oder Außenecke. Rückgabe: Fehlertexte.
+      # Drachenstufen mit Lage der Ecke im Auftritt (Gehlinie, 0..1):
+      # [[Nr., Anteil vor der Ecke], ...]
+      def kite_fracs(plan)
+        return [] if plan.corners.nil? || plan.spiral
+        lw = plan.lines_w
+        plan.corners.map do |c|
+          next unless c[:w] && plan.zones.any? { |z| z[:kind] == :winder && c[:w] > z[:w0] - 1e-6 && c[:w] < z[:w1] + 1e-6 }
+          k = (0...plan.treads).find { |j| lw[j] < c[:w] - 1e-9 && lw[j + 1] > c[:w] + 1e-9 }
+          k && [k + 1, (c[:w] - lw[k]) / (lw[k + 1] - lw[k])]
+        end.compact
+      end
+
+      # Prüfung der Drachenstufen: Ecke innerhalb einer Stufe, an Innen- und
+      # Außenecke beide Schenkel mindestens KITE_HOOK_MIN. Rückgabe: Fehlertexte.
       def kite_errors(plan)
         errs = []
         return errs if plan.corners.nil? || plan.corners.empty? || plan.spiral
         lw = plan.lines_w
-        qmin = [KITE_HOOK_MIN, plan.params ? plan.params['min_inner'].to_f / 2.0 : 0.0].max - 0.01
+        hook = KITE_HOOK_MIN - 0.01
         plan.corners.each_with_index do |c, ci|
           next unless c[:w]
           next unless plan.zones.any? { |z| z[:kind] == :winder && c[:w] > z[:w0] - 1e-6 && c[:w] < z[:w1] + 1e-6 }
@@ -572,18 +615,30 @@ module JTools
             errs << "Stufenkante läuft durch die Ecke #{ci + 1}"
             next
           end
-          if ((lw[k] + lw[k + 1]) / 2.0 - c[:w]).abs > 0.02
-            errs << "Ecke #{ci + 1} liegt nicht mittig in der Drachenstufe"
-            next
-          end
           l0 = plan.line(lw[k]); l1 = plan.line(lw[k + 1])
           q0 = c[:s] - l0[:s]; q1 = l1[:s] - c[:s]
           o0 = c[:t] - l0[:t]; o1 = l1[:t] - c[:t]
-          errs << "Drachenstufe Nr. #{k + 1} ist nicht symmetrisch" if (q0 - q1).abs > 0.05 || q0 < -0.05 || q1 < -0.05
-          errs << "Drachenstufe Nr. #{k + 1} hat nur einen kleinen Haken an der Innenecke" if [q0, q1].any? { |q| q > 0.05 && q < qmin }
-          errs << "Drachenstufe Nr. #{k + 1} hat nur einen kleinen Haken an der Außenecke" if [o0, o1].any? { |o| o < qmin }
+          if q0 < -0.05 || q1 < -0.05
+            errs << "Innenecke liegt nicht in der Drachenstufe Nr. #{k + 1}"
+          elsif [q0, q1].min < hook
+            errs << format('Drachenstufe Nr. %d: kleiner Schenkel an der Innenecke nur %.1f cm (mind. %.0f cm)', k + 1, [q0, q1].min, KITE_HOOK_MIN)
+          end
+          errs << format('Drachenstufe Nr. %d: kleiner Schenkel an der Außenecke nur %.1f cm', k + 1, [o0, o1].min) if [o0, o1].min < hook
         end
         errs
+      end
+
+      # Zwei Ecken im Abstand d (Gehlinie): Lage f der ersten Ecke in ihrer Stufe (0..1),
+      # bei der beide Ecken möglichst weit von den Stufenkanten entfernt liegen.
+      def kite_pair_frac(d, a)
+        dl = (d / a) % 1.0
+        (1.0 - dl) / 2.0 >= dl / 2.0 ? (1.0 - dl) / 2.0 : 1.0 - dl / 2.0
+      end
+
+      # Abstand der Ecke von der näheren Stufenkante (Anteil des Auftritts)
+      def kite_centrality(w, a)
+        f = (w / a) % 1.0
+        [f, 1.0 - f].min
       end
 
       # Zulässiger Bereich für die Gehlinie (Abstand von der Innenkante):
@@ -663,25 +718,43 @@ module JTools
       end
 
       # --- Gerade und gewinkelte Läufe -------------------------------------
-      def build_flights(plan, p, n, a)
+      # kite_mid: U-Treppe – Gehlinie anpassen, damit beide Ecken mittig liegen (wie bis 2.7.1)
+      def build_flights(plan, p, n, a, kite_mid = false)
         v = p['variant']
         b = p['b'].to_f
         gl = p['gl'].to_f
         gl = b / 2.0 if gl <= 0 || !Params::TURNING.include?(v)
         raise PlanError, 'Gehlinienabstand muss kleiner als die Laufbreite sein.' if gl >= b
         e = p['eye'].to_f
-        off = 0.5 * a # Ecke (Mitte der Drachenstufe) liegt in Stufenmitte
+        # Lage der Ecke in der Drachenstufe (Anteil des Auftritts vor der Ecke), 0 = mittig
+        kp1 = p['kite_pos'].to_f / 100.0
+        kp2 = p['kite_pos2'].to_f / 100.0
+        [kp1, kp2].each do |kp|
+          raise PlanError, 'Lage der Ecke in der Drachenstufe muss zwischen 0 und 100 % liegen.' if kp.negative? || kp >= 1.0
+        end
+        off = kp1 > 0 ? kp1 * a : 0.5 * a # Lage der (ersten) Ecke in ihrer Stufe
         if v == 'u_wendel'
-          # beide Ecken mittig in einer Stufe: Abstand der Eckmitten (lc + Auge) = k·a
-          gl0 = gl
-          sol = gl_for_corners(a, Turtle.corner_len(1.0), e, b, gl0)
-          raise PlanError, 'Drachenstufen lassen sich nicht mittig auf die Ecken legen (Treppenauge, Laufbreite oder Auftritt ändern).' unless sol
-          gl, kk = sol
-          off = kk.even? ? 0.5 * a : 0.0
-          if (gl - gl0).abs > 0.05
-            plan.info << ['Gehlinie angepasst (Drachenstufen mittig auf den Ecken)', format('%.1f cm statt %.1f cm', gl, gl0)]
-            _l, _h, dlo, dhi = gl_range(b, gl0)
-            plan.warnings << format('Gehlinie (%.1f cm) liegt außerhalb des Gehbereichs.', gl) if gl < dlo - 1e-6 || gl > dhi + 1e-6
+          # off = Lage der Wendelmitte in ihrer Stufe; Ecken im Abstand lc + Auge
+          if kp1 > 0
+            off = (kp1 * a + (Turtle.corner_len(gl) + e) / 2.0) % a
+          else
+            # beide Ecken mittig in einer Stufe: Abstand der Eckmitten (lc + Auge) = k·a
+            gl0 = gl
+            sol = gl_for_corners(a, Turtle.corner_len(1.0), e, b, gl0)
+            sol = nil if sol && KITE_KEEP_GL && !kite_mid && (sol[0] - gl0).abs >= 0.05
+            if sol
+              gl, kk = sol
+              off = kk.even? ? 0.5 * a : 0.0
+              if (gl - gl0).abs > 0.05
+                plan.info << ['Gehlinie angepasst (Drachenstufen mittig auf den Ecken)', format('%.1f cm statt %.1f cm', gl, gl0)]
+                _l, _h, dlo, dhi = gl_range(b, gl0)
+                plan.warnings << format('Gehlinie (%.1f cm) liegt außerhalb des Gehbereichs.', gl) if gl < dlo - 1e-6 || gl > dhi + 1e-6
+              end
+            else
+              # mittig nicht ohne Verschieben der Gehlinie: Gehlinie bleibt, Ecken so mittig wie möglich
+              d = Turtle.corner_len(gl) + e
+              off = (kite_pair_frac(d, a) * a + d / 2.0) % a
+            end
           end
         end
         sg = p['direction'] == 'links' ? 1 : -1
@@ -740,7 +813,7 @@ module JTools
           flights = [r1, r2, r3]
         when 'l_wendel', 'u_wendel'
           lw = v == 'l_wendel' ? lc : 2 * lc + e
-          # Wendelmitte liegt bei m·a + off (off = ½a: mitten in der Drachenstufe)
+          # Wendelmitte liegt bei m·a + off (L: off = Lage der Ecke in der Drachenstufe, Standard ½a)
           m_min = [((lw / 2.0 - off) / a).ceil, 0].max
           m_max = ((ntr * a - off - lw / 2.0) / a).floor
           m = pick(p['m1'], ((ntr - 1) / 2.0).round, m_min, m_max, 'Stufen vor der Drachenstufe')
@@ -756,15 +829,16 @@ module JTools
           depths = [a] * ntr
           flights = [n]
         when 'z_wendel'
+          off2 = kp2 > 0 ? kp2 * a : 0.5 * a
           m_min = [((lc / 2.0 - off) / a).ceil, 0].max
-          gap_min = (lc / a).ceil
-          m1 = pick(p['m1'], (ntr / 3.0 - 0.5).round, m_min, ((ntr * a - off - lc / 2.0) / a).floor - gap_min, 'Stufen vor der 1. Drachenstufe')
+          gap_min = [((lc - off2 + off) / a).ceil, 0].max
+          m1 = pick(p['m1'], (ntr / 3.0 - 0.5).round, m_min, ((ntr * a - off2 - lc / 2.0) / a).floor - gap_min, 'Stufen vor der 1. Drachenstufe')
           c1 = m1 * a + off
-          m2 = pick(p['m2'], ((ntr * a - c1) / a / 2.0).round, gap_min, ((ntr * a - c1 - lc / 2.0) / a).floor, 'Stufen zwischen den Drachenstufen')
-          c2 = c1 + m2 * a
+          m2 = pick(p['m2'], ((ntr * a - c1) / a / 2.0).round, gap_min, ((ntr * a - off2 - lc / 2.0) / a).floor - m1, 'Stufen zwischen den Drachenstufen')
+          c2 = (m1 + m2) * a + off2
           t.straight(c1 - lc / 2.0)
           t.turn(:winder) { t.corner }
-          t.straight(m2 * a - lc)
+          t.straight(c2 - c1 - lc)
           t.turn(:winder) { t.corner }
           t.straight(ntr * a - c2 - lc / 2.0)
           depths = [a] * ntr
@@ -817,8 +891,10 @@ module JTools
             lin = z[:s1] - z[:s0]
             wc = (z[:w0] + z[:w1]) / 2.0
             cs = plan.corners.select { |c| c[:w] && c[:w] > z[:w0] - 1e-6 && c[:w] < z[:w1] + 1e-6 }.sort_by { |c| c[:w] }
-            span = cs.empty? ? 0.0 : cs[-1][:w] - cs[0][:w]
-            d_min = [lwz / 2.0 + 0.2 * a, span / 2.0 + a / 2.0 + 0.2 * a].max
+            # Drachenstufen (Stufenkanten um die Ecken) müssen ganz in der Wendelung liegen
+            ed = cs.map { |c| kite_edges(c, lw, a) }
+            reach = ed.empty? ? 0.0 : [wc - ed[0][0], ed[-1][1] - wc].max
+            d_min = [lwz / 2.0 + 0.2 * a, reach + 0.2 * a].max
             zp = zi > 0 ? plan.zones[zi - 1] : nil
             zn = zi < plan.zones.size - 1 ? plan.zones[zi + 1] : nil
             # Nachbar-Podest (z. B. Austrittspodest): Wendelung darf bis an das Podest reichen
@@ -844,7 +920,7 @@ module JTools
             sa = z[:s0] - (z[:w0] - wa)
             sb = z[:s1] + (wb - z[:w1])
             bps << [wa, sa]
-            kite_breakpoints(cs, a, wa, sa, wb, sb, p['min_inner'].to_f).each { |x| bps << x }
+            kite_breakpoints(cs, a, wa, sa, wb, sb, p['min_inner'].to_f, lw).each { |x| bps << x }
             bps << [wb, sb]
             z[:d] = d
           end
@@ -876,49 +952,85 @@ module JTools
         plan
       end
 
-      KITE_HOOK_MIN = 5.0 # cm – kleinster zulässiger "Haken" einer Drachenstufe an der Innenecke
+      KITE_HOOK_MIN = 2.0  # cm – kleinster zulässiger Schenkel einer Drachenstufe an Innen- und Außenecke
+      KITE_HOOK_PREF = 5.0 # cm – bevorzugter Schenkel innen (wie bis 2.7.1, solange das passt)
+      KITE_F_AUTO = 0.25   # automatisch außermittig: Ecke mind. 25 % des Auftritts vom Stufenrand
+      KITE_KEEP_GL = true  # Gehlinie halten und Ecke außermittig, statt die Gehlinie für eine mittige Ecke zu verschieben
+
+      # Stufenkanten (Gehlinie) vor und nach einer Ecke: [w0, w1]
+      def kite_edges(c, lw, a)
+        k = (0...lw.size - 1).find { |j| lw[j] < c[:w] - 1e-6 && lw[j + 1] > c[:w] + 1e-6 }
+        k ? [lw[k], lw[k + 1]] : [c[:w] - a / 2.0, c[:w] + a / 2.0]
+      end
 
       # Stützpunkte der Zuordnung s(w) für die Drachenstufen einer Wendelzone.
-      # Jede Ecke liegt genau in der Mitte einer Stufe (Stufenkanten bei w_ecke ± a/2,
-      # dafür sorgt die Lage der Wendelung). Die beiden Kanten der Drachenstufe treffen
-      # die Innenkante symmetrisch bei s_ecke ∓ q -> die Stufe ist spiegelgleich zur
-      # Eckdiagonale. q ist entweder 0 (Spitze genau in der Innenecke) oder mindestens
-      # KITE_HOOK_MIN – nie ein kleiner Haken um die Ecke.
-      def kite_breakpoints(cs, a, wa, sa, wb, sb, min_inner)
+      # Jede Ecke liegt in einer Stufe (Kanten e0 < w_ecke < e1, Anteil f = (w_ecke − e0)/a).
+      # Die Kanten der Drachenstufe treffen die Innenkante bei s_ecke − Q·f und
+      # s_ecke + Q·(1 − f): bei mittiger Ecke (f = ½) spiegelgleich zur Eckdiagonale,
+      # sonst im selben Verhältnis geteilt wie auf der Gehlinie. Q (Breite der
+      # Drachenstufe an der Innenkante) wird so gewählt, dass der kleinere Schenkel
+      # mindestens KITE_HOOK_MIN lang ist – bevorzugt wie bisher KITE_HOOK_PREF bzw.
+      # min_inner/2; nur wenn gar nichts passt, Q = 0 (Spitze in der Innenecke, Warnung).
+      def kite_breakpoints(cs, a, wa, sa, wb, sb, min_inner, lw)
         return [] if cs.empty?
-        qmin = [KITE_HOOK_MIN, min_inner / 2.0].max
-        sig = (sb - sa) / (wb - wa)
-        q = sig * a / 2.0
-        caps = []
-        (0...cs.size - 1).each do |i|
-          lm = cs[i + 1][:w] - cs[i][:w]
-          gm = cs[i + 1][:s] - cs[i][:s]
-          kk = [(lm / a).round, 1].max
-          caps << (kk == 1 ? gm / 2.0 : gm / (2.0 * kk))
+        ks = cs.map do |c|
+          e0, e1 = kite_edges(c, lw, a)
+          { s: c[:s], w: c[:w], e0: e0, e1: e1, f: (c[:w] - e0) / (e1 - e0) }
         end
-        q = [q, *caps].min
+        qn = (sb - sa) / (wb - wa) * a
+        (0...ks.size - 1).each do |i|
+          kk = (ks[i + 1][:w] - ks[i][:w]) / a # Abstand der Ecken in Auftritten (mittig: ganzzahlig)
+          kk = kk.round if kk.round >= 1 && (kk - kk.round).abs < 1e-3
+          qn = [qn, (ks[i + 1][:s] - ks[i][:s]) / kk].min if kk > 1e-9
+        end
         ok = lambda do |qq|
           return false if qq < -1e-9
-          l1 = cs[0][:w] - a / 2.0 - wa
-          r1 = wb - (cs[-1][:w] + a / 2.0)
+          l1 = ks[0][:e0] - wa
+          r1 = wb - ks[-1][:e1]
           return false if l1 < -1e-6 || r1 < -1e-6
-          return false if cs[0][:s] - qq - sa < (l1 > 1e-6 ? 0.25 * qq * l1 / (a / 2.0) - 1e-6 : -1e-6)
-          return false if sb - (cs[-1][:s] + qq) < (r1 > 1e-6 ? 0.25 * qq * r1 / (a / 2.0) - 1e-6 : -1e-6)
-          (0...cs.size - 1).each do |i|
-            lm = cs[i + 1][:w] - cs[i][:w] - a
-            gm = cs[i + 1][:s] - cs[i][:s] - 2 * qq
+          sl = qq / a
+          return false if ks[0][:s] - qq * ks[0][:f] - sa < (l1 > 1e-6 ? 0.25 * sl * l1 - 1e-6 : -1e-6)
+          return false if sb - (ks[-1][:s] + qq * (1.0 - ks[-1][:f])) < (r1 > 1e-6 ? 0.25 * sl * r1 - 1e-6 : -1e-6)
+          (0...ks.size - 1).each do |i|
+            lm = ks[i + 1][:e0] - ks[i][:e1]
+            gm = (ks[i + 1][:s] - qq * ks[i + 1][:f]) - (ks[i][:s] + qq * (1.0 - ks[i][:f]))
             return false if gm < -1e-6 || (lm < 1e-6 && gm.abs > 1e-3)
           end
           true
         end
-        q = if q >= qmin - 1e-9 && ok.(q)
-              q
-            elsif q >= qmin / 2.0 && ok.(qmin)
-              qmin
-            else
-              0.0
+        cen = ks.map { |k| [k[:f], 1.0 - k[:f]].min }.min
+        need = KITE_HOOK_MIN / [cen, 1e-6].max
+        bp = ->(qq) { ks.flat_map { |k| [[k[:e0], k[:s] - qq * k[:f]], [k[:e1], k[:s] + qq * (1.0 - k[:f])]] } }
+        if cen < 0.5 - 1e-3
+          # außermittig: Q so, dass der schmalste Innenauftritt der Wendelung möglichst breit wird
+          hi = [qn, need].max
+          cands = (0..40).map { |i| need + (hi - need) * i / 40.0 }.select { |qq| ok.(qq) }
+          unless cands.empty?
+            steps = lw.each_cons(2).select { |w0, w1| w0 >= wa - 1e-6 && w1 <= wb + 1e-6 }
+            return bp.(cands.max_by { |qq| [kite_min_inner([[wa, sa]] + bp.(qq) + [[wb, sb]], steps).round(2), -(qq - qn).abs] })
+          end
+          return bp.(0.0)
+        end
+        pref = [2.0 * [KITE_HOOK_PREF, min_inner / 2.0].max, need].max
+        q = if qn >= pref - 1e-9 && ok.(qn) then qn
+            elsif qn >= pref / 2.0 && ok.(pref) then pref
+            elsif qn >= need - 1e-9 && ok.(qn) then qn
+            elsif qn >= need / 2.0 && ok.(need) then need
+            else 0.0
             end
-        cs.flat_map { |c| [[c[:w] - a / 2.0, c[:s] - q], [c[:w] + a / 2.0, c[:s] + q]] }
+        bp.(q)
+      end
+
+      # Schmalster Innenauftritt der Stufen [w0, w1] bei Stützpunkten pts der Zuordnung s(w)
+      def kite_min_inner(pts, steps)
+        pts = pts.sort_by(&:first)
+        sw = lambda do |w|
+          i = pts.index { |x| x[0] >= w - 1e-9 } || pts.size - 1
+          return pts[0][1] if i.zero?
+          (w0, s0), (w1, s1) = pts[i - 1], pts[i]
+          (w1 - w0).abs < 1e-12 ? s1 : s0 + (s1 - s0) * (w - w0) / (w1 - w0)
+        end
+        steps.map { |w0, w1| sw.(w1) - sw.(w0) }.min || 0.0
       end
 
       def pick(val, auto, lo, hi, label)

@@ -832,12 +832,17 @@ module JTools
           # innere Ecken für die Restbreite an der hinteren der beiden
           # Flächenlagen (Unterkante steigt -> dort ist der Abstand kleiner)
           fpl = [-1, 1].map { |g| src.each_with_index.map { |q, i| Geo.add(q, Geo.mul(mn[i], -(off + g * t / 2.0))) } }
-          chi = (0...plan.treads).map do |k|
+          # vordere Lage zusätzlich, wo die Unterkante fällt (Stoß an der Ecke,
+          # kurzer Schenkel einer Drachenstufe dicht dahinter)
+          chl = (0...plan.treads).map do |k|
             l = clines[k]
             o_, dv = which == :outer ? [l[:in], Geo.sub(l[:out], l[:in])] : [l[:out], Geo.sub(l[:in], l[:out])]
-            ([cuts[k]] + fpl.map { |fp| face_hit(fp, sp, o_, dv) }.compact).max
+            ([cuts[k]] + fpl.map { |fp| face_hit(fp, sp, o_, dv) }.compact).minmax
           end
+          chi = chl.map(&:last)
           corners = (0...plan.treads - 1).map { |k| [chi[k + 1], zt[k]] } + [[v_end, zt[-1]]]
+          # zusätzliche Bedingungen für den Anschluss an Ecken (sat_slope), nicht für die Ausgleichsgerade
+          corners_r = (0...plan.treads - 1).flat_map { |k| [[chl[k + 1][0], zt[k]], [chi[k + 1], zt[k]]].uniq } + [[v_end, zt[-1]]]
           # gerade Abschnitte der Mittellinie
           segs = []
           pts = sp.pts; cum = sp.cum
@@ -874,7 +879,8 @@ module JTools
             next if cs.empty?
             c, s = cs.size == 1 ? [cs[0][1], 0.0] : bottom_line(cs)
             c -= rest * Math.sqrt(1 + s * s)
-            recs << { v0: v0, v1: v1, a: v0, b: v1, cs: cs, f: [c, s], ops: [], landing: lk,
+            cr = lk ? cs : (cs + corners_r.select { |v, _| v >= v0 - 0.01 && v <= v1 + 0.01 }).uniq
+            recs << { v0: v0, v1: v1, a: v0, b: v1, cs: cs, cr: cr, f: [c, s], ops: [], landing: lk,
                       dir: Geo.norm(Geo.sub(sp.at(v1), sp.at(v0))) }
           end
           # Ecken (Knick zwischen zwei Brettern): stumpfer Stoß ohne
@@ -917,20 +923,20 @@ module JTools
             zp = sat_bottom(ra, ra[:b])
             fz = r[:f][0] + r[:f][1] * vp
             next if (zp - fz).abs < 1e-6
-            sl = zp > fz ? sat_slope(r[:cs], vp, zp, rest, 1) : nil
+            sl = zp > fz ? sat_slope(r[:cr], vp, zp, rest, 1) : nil
             if zp > fz && sl.nil?
               # zu hoch für das obere Brett: höchste mögliche Höhe, unteres
               # Brett am Ende entsprechend absenken
               lo = fz; hi = zp
               40.times do
                 m = (lo + hi) / 2.0
-                sat_slope(r[:cs], vp, m, rest, 1) ? lo = m : hi = m
+                sat_slope(r[:cr], vp, m, rest, 1) ? lo = m : hi = m
               end
               zp = lo
-              sa = sat_slope(ra[:cs], ra[:b], zp, rest, -1)
+              sa = sat_slope(ra[:cr], ra[:b], zp, rest, -1)
               ra[:ops] << [:min, [zp - sa * ra[:b], sa]] if sa
             end
-            sl = sat_slope(r[:cs], vp, zp, rest, 1)
+            sl = sat_slope(r[:cr], vp, zp, rest, 1)
             next unless sl
             r[:ops] << [zp > fz ? :max : :min, [zp - sl * vp, sl]]
           end
@@ -1117,6 +1123,10 @@ module JTools
           end
           tp = top.map { |v, z| mv.(v, z) }
           bp = bot.map { |v, z| mv.(v, z) }
+          # Ausklinkung, die auf dieser Fläche hinter einem folgenden Punkt der
+          # Oberkante liegt (kurzer Schenkel einer Drachenstufe nahe der Ecke):
+          # die Punkte dazwischen fallen auf die Ausklinkung zusammen
+          (1...tp.size).each { |i| tp[i] = [tp[i - 1][0], tp[i][1]] if tp[i][0] < tp[i - 1][0] && kat.(top[i - 1][0]) }
           # Reihenfolge erhalten: Oberkante steigend, Unterkante fallend
           return nil unless tp.each_cons(2).all? { |p0, p1| p1[0] >= p0[0] - 1e-6 }
           return nil unless bp.each_cons(2).all? { |p0, p1| p1[0] <= p0[0] + 1e-6 }

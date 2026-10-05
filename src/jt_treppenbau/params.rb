@@ -137,8 +137,16 @@ module JTools
         { key: 'r2', label: 'Steigungen im 2. Lauf', type: 'number', default: 0, unit: 'Stk', group: 'Grundriss', min: 0, step: 1, variants: ['z_podest'],
           help: '0 = automatisch' },
         { key: 'm1', label: 'Stufen vor der Drachenstufe (Lage der Wendelung)', type: 'number', default: 0, unit: 'Stk', group: 'Grundriss', min: 0, step: 1, variants: WENDEL,
-          help: '0 = automatisch (mittig). Die Drachenstufe liegt immer mittig geteilt auf der Ecke (spiegelgleich zur Eckdiagonale); klein = Wendelung unten (Antritt), groß = oben (Austritt). ' \
+          help: '0 = automatisch (mittig). In jeder Ecke liegt eine Drachenstufe (Teilung siehe „Lage der Ecke im Auftritt“); klein = Wendelung unten (Antritt), groß = oben (Austritt). ' \
                 'Beim Einpassen mit festem Antritt bzw. Austritt ergibt sich die Lage aus dem Raum.' },
+        { key: 'kite_pos', label: 'Drachenstufe: Lage der Ecke im Auftritt', type: 'number', default: 0, unit: '%', group: 'Grundriss', min: 0, max: 99.9, step: 0.5,
+          variants: WENDEL, freeonly: true,
+          help: '0 = automatisch (mittig, 50 %). Anteil des Auftritts auf der Gehlinie vor der Ecke: unter 50 % liegt die Ecke näher an der unteren ' \
+                'Stufenkante. Die Drachenstufe wird an der Innenkante im selben Verhältnis geteilt; der kleinere Schenkel muss mindestens 2 cm lang sein. ' \
+                'U-Treppe: gilt für die erste Ecke (die zweite folgt aus Treppenauge und Gehlinie, die Gehlinie wird dann nicht angepasst).' },
+        { key: 'kite_pos2', label: 'Drachenstufe 2: Lage der Ecke im Auftritt', type: 'number', default: 0, unit: '%', group: 'Grundriss', min: 0, max: 99.9, step: 0.5,
+          variants: ['z_wendel'], freeonly: true,
+          help: '0 = automatisch (mittig, 50 %). Wie oben, für die zweite Ecke.' },
         { key: 'm2', label: 'Stufen zwischen den Drachenstufen', type: 'number', default: 0, unit: 'Stk', group: 'Grundriss', min: 0, step: 1, variants: ['z_wendel'],
           help: '0 = automatisch' },
         { key: 'nv', label: 'Verzogene Stufen je Wendelung', type: 'number', default: 0, unit: 'Stk', group: 'Grundriss', min: 0, step: 1, variants: WENDEL,

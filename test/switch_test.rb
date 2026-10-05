@@ -19,7 +19,9 @@ room_cases = [
   ['u_wendel', 220, 210, {}], ['u_wendel', 240, 210, { 'antritt_l' => 230 }],
   ['z_podest', 220, 300, {}], ['z_wendel', 200, 260, {}],
   ['z_wendel', 220, 260, { 'eye' => 30, 'loch' => true, 'loch_l' => 220, 'loch_w' => 260 }],
-  ['spindel', 180, 180, {}], ['auge', 220, 220, {}]
+  ['spindel', 180, 180, {}], ['auge', 220, 220, {}],
+  # Drachenstufe außermittig (fester Antritt, Gehlinie bleibt)
+  ['l_wendel', 280, 240, { 'antritt_l' => 270 }], ['u_wendel', 230, 205, { 'antritt_l' => 225 }]
 ]
 free_cases = [
   ['gerade', {}], ['gerade', { 'n_steps' => 16, 'a_user' => 27 }], ['gerade', { 'exit_land' => 25 }],
@@ -29,7 +31,10 @@ free_cases = [
   ['u_podest', {}], ['u_podest', { 'pod1_nach' => 15 }], ['u_podest', { 'pod1_vor' => 10, 'exit_land' => 20 }],
   ['u_wendel', {}], ['z_podest', {}], ['z_podest', { 'pod1_nach' => 8, 'pod2_vor' => 8 }],
   ['z_wendel', {}], ['spindel', {}], ['auge', { 'D_out' => 200 }],
-  ['gerade', { 'total_w' => 110, 'total_l' => 380 }]
+  ['gerade', { 'total_w' => 110, 'total_l' => 380 }],
+  # Drachenstufe außermittig (Lage der Ecke vorgegeben bzw. U-Treppe mit fester Gehlinie)
+  ['l_wendel', { 'kite_pos' => 35 }], ['u_wendel', { 'kite_pos' => 30 }], ['u_wendel', { 'gl' => 42 }],
+  ['z_wendel', { 'kite_pos' => 40, 'kite_pos2' => 65 }]
 ]
 sides = [%w[wange wange], %w[wange sattel], %w[frei wange]]
 err = 0; cnt = 0; tmax = 0.0
