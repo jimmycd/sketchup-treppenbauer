@@ -56,7 +56,7 @@ dir = Dir.mktmpdir
         errs = []
         res.boards.each do |jb|
           nb += 1
-          r = o['tool_d'] / 2.0
+          r = Cnc.outer_tool(o, jb.t)[:d] / 2.0
           jb.programs.each do |pg|
             outline = Wange3d.outline_on(jb.sb_ctx, jb.outline, pg.side == 2)
             pg.ops.each do |kind, pts|

@@ -8,14 +8,17 @@
 # senkrecht steht und schräg durch die Brettdicke läuft.
 #
 # Fertigung aus einem rechteckigen Rohling (Brett liegt flach, Faser in X):
-#   Seite 1:  Gravur, Markierungen, Ausräumen aus dem Vollen (alles oberhalb
-#             der Auflager und hinter den Brettenden – kein loses Abfallstück),
-#             Schrägen mit dem Seitenaggregat (waagerechte Spindel, Achse in
-#             Richtung der Treppen-Senkrechten, C-Achse gedreht; Hilfsfläche
-#             GSIDE je Wand), Außenkontur zuletzt (falls kein Wenden).
-#   Seite 2:  (nur „wenden“) Brett um die Y-Achse wenden, an den
-#             Rohlingskanten ausrichten: Schrägen mit umgekehrter Neigung,
-#             Außenkontur zuletzt.
+#   Seite 1:  Gravur, Markierungen, Außenkontur (in Stufen zu je sat_zstep
+#             bis Dicke + Durchfräsen, ohne Ausräumen), danach Schrägen mit dem
+#             Seitenaggregat (waagerechte Spindel, Achse in Richtung der
+#             Treppen-Senkrechten, C-Achse gedreht; Hilfsfläche GSIDE je Wand).
+#   Wenden:   Seite 1 beginnt mit dem Formatieren des Rohlings (Rohteil je
+#             Seite FORMAT_OFF größer) – die formatierten Kanten sind der
+#             Bezug für Seite 2. Außenkontur auf Seite 1: Stufenseite und
+#             Enden durchgefräst, der Rücken bleibt stehen (hält das Teil);
+#             Seite 2 (um die Y-Achse gewendet): Rücken fräsen, dann Schrägen
+#             mit umgekehrter Neigung. (Ohne erkennbaren Rücken: Seite 1 bis
+#             Reststärke REST_T, Seite 2 durch die Reststärke.)
 #   Optionen: sat_mode 'fraesen' | 'markieren', sat_wenden true/false.
 #   Nicht erreichbare Teile (Werkzeuglänge) und nicht gefräste Schrägen werden
 #   mit dem Gravurwerkzeug markiert (Nacharbeit von Hand).
@@ -30,7 +33,24 @@ module JTools
 
       MM = 10.0
 
+      FORMAT_OFF = 5.0   # Rohteil je Seite größer als das Formatmaß (nur Wenden)
+      REST_T = 10.0      # Reststärke der Außenkontur auf Seite 1 (nur Wenden)
+
       Job = Struct.new(:label, :info, :t, :blank, :programs, :notes, :outline, :walls, :sb, :sb_ctx) do
+        def wenden?
+          programs.size > 1
+        end
+
+        # Versatz Rohteil -> Formatmaß auf Seite 1 (nur Wenden)
+        def raw_off
+          wenden? ? FORMAT_OFF : 0.0
+        end
+
+        # Rohteilmaß (vor dem Formatieren)
+        def raw_blank
+          blank.map { |v| v + 2 * raw_off }
+        end
+
         # eine Zeile für die Hinweisliste im Dialog
         def summary
           c = Hash.new(0); walls.each { |w| c[w[:how]] += 1 }
@@ -138,8 +158,8 @@ module JTools
           pl = Struct.new(:part, :poly).new(Struct.new(:label).new(jb.label), outline)
           Tcn.label_strokes(pl, o['text_h'].to_f).each { |st| s1.ops << [:mark, st] }
         end
-        # Ausräumen aus dem Vollen
-        clearing(ctx).each { |path| s1.ops << [:clear, path] }
+        # Außenkontur auf Seite 1 vor den Schrägen (kein Ausräumen mehr)
+        s1.ops << [:contour, outline_on(ctx, outline, false)]
         ws.each do |w|
           prog = w[:side] == 1 || !wenden ? s1 : s2
           flip = prog.side == 2
@@ -171,13 +191,37 @@ module JTools
           end
           jb.walls << w
         end
-        # Außenkontur zuletzt (auf der zuletzt bearbeiteten Seite)
-        last = s2 || s1
-        last.ops << [:contour, outline_on(ctx, outline, last.side == 2)]
+        if s2
+          # Seite 1: zuerst formatieren, Außenkontur nur bis Reststärke;
+          # Seite 2: Außenkontur durch die Reststärke, vor den Schrägen
+          s1.ops.unshift([:format, [[0.0, 0.0], [bl, 0.0], [bl, bw], [0.0, bw]]])
+          bi = back_idx(ring, ntop)
+          if bi
+            fi = (bi.last...ring.size).to_a + (0..bi.first).to_a
+            s1.ops.map! { |op| op[0] == :contour ? [:contour, op[1], { idx: fi }] : op }
+            s2.ops.unshift([:contour, outline_on(ctx, outline, true), { idx: bi }])
+          else
+            s1.ops.map! { |op| op[0] == :contour ? [:contour, op[1], :leave_rest] : op }
+            s2.ops.unshift([:contour, outline_on(ctx, outline, true), :finish_rest])
+          end
+        end
         jb.programs << s1
         jb.programs << s2 if s2
-        jb.notes << "#{jb.label}: wenden (um die Y-Achse, Anschlag an den Rohlingskanten) – Seite 2" if s2
+        if s2
+          jb.notes << "#{jb.label}: Rohteil #{(bl + 2 * FORMAT_OFF).round} × #{(bw + 2 * FORMAT_OFF).round} mm, " \
+                      "Seite 1 formatiert auf #{bl.round} × #{bw.round} mm; " +
+                      (bi ? 'Stufenseite und Enden durchgefräst, Rücken bleibt stehen' : "Außenkontur bis #{REST_T.round} mm Reststärke")
+          jb.notes << "#{jb.label}: wenden (um die Y-Achse), an den formatierten Kanten anlegen – Seite 2 (#{bi ? 'Rücken fräsen' : 'Kontur durchfräsen'}, Schrägen)"
+        end
         jb
+      end
+
+      # Indizes des Rückens im Umriss (ring[ntop..], ohne waagerechten Boden-
+      # schnitt am Ende); nil, wenn kein Rücken erkennbar
+      def back_idx(ring, ntop)
+        idx = (ntop...ring.size).to_a
+        idx.pop while idx.size >= 2 && (ring[idx[-1]][1] - ring[idx[-2]][1]).abs < 1e-6
+        idx.size >= 2 ? idx : nil
       end
 
       def sb_label(sb)
@@ -234,13 +278,13 @@ module JTools
         [tab(ctx, [u, z], flip), tab(ctx, [u - mat * 10.0, z], flip)]
       end
 
-      # --- Ausräumen aus dem Vollen ----------------------------------------
+      # --- Ausräumen aus dem Vollen (derzeit nicht verwendet) --------------
       # Bereich: Rohling ohne (Wange ∪ Bereich unter der Wange), d. h. alles
       # oberhalb der Auflager und hinter den Brettenden. Zeilen parallel zu den
       # Auflagern (Brett-u), Fräsermitte mindestens r von der Wange entfernt.
       def clearing(ctx)
         o = ctx[:o]
-        r = o['tool_d'].to_f / 2.0
+        r = Cnc.outer_tool(o, ctx[:t])[:d] / 2.0
         ring = ctx[:ring]; ntop = ctx[:ntop]
         top = ring[0...ntop]
         pieces = []

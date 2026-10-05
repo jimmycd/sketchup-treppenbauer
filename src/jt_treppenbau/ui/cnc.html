@@ -97,11 +97,13 @@
     { g:'Rohplatte', key:'margin', label:'Randabstand', unit:'mm', step:1 },
     { g:'Rohplatte', key:'grain', label:'Faserrichtung beachten', type:'bool',
       help:'Ein: Teile nur 0°/180° gedreht (Trittstufen quer, Wangen längs zur Faser). Aus: auch 90°/270° – meist weniger Verschnitt.' },
-    { g:'Fräser (wie dxf4tcn)', key:'tool_outer', label:'Fräser Außenkontur', type:'tool' },
-    { g:'Fräser (wie dxf4tcn)', key:'tool_d', label:'Fräserdurchmesser', unit:'mm', step:0.5 },
-    { g:'Fräser (wie dxf4tcn)', key:'gap', label:'Teileabstand', unit:'mm', step:0.5, help:'0 = Fräserdurchmesser + 4 mm' },
-    { g:'Fräser (wie dxf4tcn)', key:'overcut', label:'Durchfräsen (tiefer als Materialstärke)', unit:'mm', step:0.1 },
-    { g:'Fräser (wie dxf4tcn)', key:'climb', label:'Außenkontur im Uhrzeigersinn (Korrektur links)', type:'bool' },
+    { g:'Aussenkonturen', key:'tool_outer', label:'Fräser Außenkontur', type:'tool',
+      help:'Automatisch: je Materialstärke 1300, wenn Stärke + Durchfräsen ≤ 54 mm, sonst 1004. 2200 nur bei Auswahl.' },
+    { g:'Aussenkonturen', key:'tool_d', label:'Fräserdurchmesser', unit:'mm', step:0.01, help:'Bei Automatisch aus der Werkzeugliste' },
+    { g:'Aussenkonturen', key:'gap', label:'Teileabstand', unit:'mm', step:0.5, help:'0 = Fräserdurchmesser + 4 mm' },
+    { g:'Aussenkonturen', key:'overcut', label:'Durchfräsen (tiefer als Materialstärke)', unit:'mm', step:0.1, neg:true,
+      help:'Negativ = nie ganz durchgefräst (gilt für alle Konturen)' },
+    { g:'Aussenkonturen', key:'climb', label:'Außenkontur im Uhrzeigersinn (Korrektur links)', type:'bool' },
     { g:'Teile', key:'p_treads', label:'Trittstufen und Podeste', type:'bool', need:'notmassiv' },
     { g:'Teile', key:'p_risers', label:'Setzstufen', type:'bool', need:'risers' },
     { g:'Teile', key:'p_stringers', label:'Wangen (abgewickelt, mit Nuten)', type:'bool', need:'wange' },
@@ -116,6 +118,8 @@
       help:'Rohling rechteckig: Auflager aus dem Vollen ausräumen, Schrägen fräsen bzw. markieren, Außenkontur zuletzt. Nicht erreichbare Reste (Werkzeuglänge) werden markiert.' },
     { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'sat_wenden', label:'Wenden: Schrägen mit umgekehrter Neigung auf Seite 2', type:'bool', need:'sattel',
       help:'Ein: zweites Programm je Wange nach Wenden um die Y-Achse (Anschlag an den Rohlingskanten), Außenkontur dann auf Seite 2. Aus: diese Schrägen werden markiert.' },
+    { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'sat_zstep', label:'Außenkontur: Schrittweite je Umlauf', unit:'mm', step:1, need:'sattel',
+      help:'Umläufe in 1×, 2×, … Schrittweite Tiefe, letzter bis Dicke + Durchfräsen. 0 = ein Umlauf.' },
     { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'agg_tool', label:'Werkzeug Seitenaggregat', unit:'Nr', step:1, need:'sattel' },
     { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'agg_d', label:'Durchmesser', unit:'mm', step:0.5, need:'sattel' },
     { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'agg_len', label:'nutzbare Länge', unit:'mm', step:1, need:'sattel' },
@@ -167,6 +171,7 @@
         groups[g].forEach(function (f) { fs.appendChild(self.field(f)); });
         form.appendChild(fs);
       });
+      this.toolAuto();
     },
 
     field: function (f) {
@@ -179,7 +184,7 @@
         el = document.createElement('select');
         this.tools.forEach(function (t) { var o = document.createElement('option'); o.value = t.nr; o.textContent = t.name; el.appendChild(o); });
         el.value = this.o.tool_outer;
-        el.onchange = function () { self.o.tool_outer = parseInt(el.value, 10); self.call('tooldia', self.o.tool_outer); };
+        el.onchange = function () { self.o.tool_outer = parseInt(el.value, 10); self.toolAuto(); self.call('tooldia', self.o.tool_outer); };
       } else if (f.type === 'tpacad') {
         el = document.createElement('span'); el.id = 'tpacad';
         el.textContent = this.ctx.tpacad || '(nicht festgelegt – Windows-Standardprogramm)';
@@ -197,7 +202,7 @@
         el = document.createElement('input'); el.type = 'checkbox'; el.checked = !!this.o[f.key];
         el.onchange = function () { self.o[f.key] = el.checked; self.compute(); };
       } else {
-        el = document.createElement('input'); el.type = 'number'; el.step = f.step || 'any'; el.min = 0;
+        el = document.createElement('input'); el.type = 'number'; el.step = f.step || 'any'; if (!f.neg) el.min = 0;
         el.value = this.o[f.key];
         var h = function () { var v = parseFloat(String(el.value).replace(',', '.')); if (!isNaN(v)) { self.o[f.key] = v; self.compute(); } };
         el.oninput = h; el.onchange = h;
@@ -209,6 +214,8 @@
       if (f.help) { var hp = document.createElement('div'); hp.className = 'help'; hp.textContent = f.help; row.appendChild(hp); }
       return row;
     },
+
+    toolAuto: function () { var e = $('f_tool_d'); if (e) e.disabled = this.o.tool_outer === 0; },
 
     setToolDia: function (d) { this.o.tool_d = d; var e = $('f_tool_d'); if (e) e.value = d; this.compute(); },
     setTpacad: function (p) { var e = $('tpacad'); if (e) e.textContent = p; },

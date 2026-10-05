@@ -7,19 +7,23 @@ module JTools
     module Cnc
       module_function
 
-      # Fräser Außenkontur wie in dxf4tcn (Werkzeugnummer => Name, Ø-Vorschlag)
+      # Fräser Außenkonturen: [Name, Werkzeugnummer, Ø (mm), max. Schnitttiefe (mm)]
       OUTER_TOOLS = [
-        ['Diamant (1000)', 1000, 12.0],
-        ['Wendeplatte (1300)', 1300, 12.0],
-        ['8mm Diamant (2200)', 2200, 8.0]
+        ['1300 – Ø 18,27 mm, max. Tiefe 54 mm', 1300, 18.27, 54.0],
+        ['1004 – Ø 20 mm, max. Tiefe 107 mm', 1004, 20.0, 107.0],
+        ['2200 – Ø 8,03 mm, max. Tiefe 23 mm', 2200, 8.03, 23.0]
       ].freeze
+      # tool_outer = 0: automatisch je Materialstärke – 1300, wenn die Frästiefe
+      # (Stärke + Durchfräsen) reicht, sonst 1004. 2200 nur bei expliziter Auswahl.
+      TOOL_AUTO = 0
+      AUTO_ORDER = [1300, 1004].freeze
 
       DEFAULTS = {
         'plate_l'     => 2800.0,  # Rohplatte Länge (mm, X = Faserrichtung)
         'plate_w'     => 2070.0,  # Rohplatte Breite (mm)
         'margin'      => 10.0,    # Randabstand (mm)
-        'tool_outer'  => 1000,    # Fräser Außenkontur (dxf4tcn)
-        'tool_d'      => 12.0,    # Fräserdurchmesser (mm)
+        'tool_outer'  => 0,       # Fräser Außenkonturen (0 = automatisch)
+        'tool_d'      => 18.27,   # Fräserdurchmesser (mm, nur bei expliziter Auswahl)
         'gap'         => 0.0,     # Teileabstand (0 = Ø + 4 mm)
         'overcut'     => 1.0,     # Durchfräsen (dxf4tcn)
         'climb'       => true,    # Uhrzeigersinn / Korrektur links (dxf4tcn)
@@ -41,6 +45,7 @@ module JTools
         # aufgesattelte Wangen: je Wange ein 3D-Programm (Rohling rechteckig)
         'sat_mode'    => 'fraesen', # Schrägen 'fraesen' (Seitenaggregat) oder nur 'markieren'
         'sat_wenden'  => false,   # Schrägen mit umgekehrter Neigung nach Wenden (Seite 2)
+        'sat_zstep'   => 20.0,    # Außenkontur Wange: Zustellung je Umlauf (mm, 0 = ein Umlauf)
         'agg_tool'    => 15001,   # Seitenaggregat (waagerechte Spindel)
         'agg_d'       => 16.0,    # Ø Aggregatfräser (mm)
         'agg_len'     => 167.0,   # nutzbare Länge (mm)
@@ -50,7 +55,7 @@ module JTools
       }.freeze
 
       Result = Struct.new(:sheets, :unplaced, :warnings, :parts, :boards)
-      SheetInfo = Struct.new(:thickness, :index, :count, :placements, :used_len, :util)
+      SheetInfo = Struct.new(:thickness, :index, :count, :placements, :used_len, :util, :tool)
 
       def normalize(h)
         o = DEFAULTS.dup
@@ -70,8 +75,33 @@ module JTools
         o
       end
 
-      def gap(o)
-        o['gap'].to_f > 0 ? o['gap'].to_f : o['tool_d'].to_f + 4.0
+      def tool_info(nr)
+        OUTER_TOOLS.find { |_, n, _, _| n == nr }
+      end
+
+      # Fräser für die Außenkontur bei Materialstärke th:
+      # { nr:, d:, max:, depth:, auto: } (max = nil bei unbekanntem Werkzeug)
+      def outer_tool(o, th)
+        depth = th.to_f + o['overcut'].to_f
+        if o['tool_outer'].to_i == TOOL_AUTO
+          t = AUTO_ORDER.map { |nr| tool_info(nr) }.find { |x| depth <= x[3] + 1e-6 } || tool_info(AUTO_ORDER.last)
+          { nr: t[1], d: t[2], max: t[3], depth: depth, auto: true }
+        else
+          nr = o['tool_outer'].to_i
+          t = tool_info(nr)
+          d = o['tool_d'].to_f > 0 ? o['tool_d'].to_f : (t ? t[2] : 12.0)
+          { nr: nr, d: d, max: t && t[3], depth: depth, auto: false }
+        end
+      end
+
+      def gap(o, d = o['tool_d'])
+        o['gap'].to_f > 0 ? o['gap'].to_f : d.to_f + 4.0
+      end
+
+      def depth_warning(what, tl)
+        return nil unless tl[:max] && tl[:depth] > tl[:max] + 1e-6
+        "#{what}: Frästiefe #{fmt(tl[:depth])} mm größer als max. Schnitttiefe von Fräser #{tl[:nr]} " \
+          "(#{fmt(tl[:max], 0)} mm)#{tl[:auto] ? ' – kein passender Fräser vorhanden' : ''}."
       end
 
       def compute(plan, params, o)
@@ -87,16 +117,20 @@ module JTools
           lbls = boards.map(&:label)
           parts = parts.reject { |pt| pt.kind == :stringer && lbls.include?(pt.label) }
           boards.each { |b| warnings << b.summary if b.summary }
-          long = boards.select { |b| b.blank[0] > o['plate_l'] || b.blank[1] > o['plate_w'] }
+          long = boards.select { |b| b.raw_blank[0] > o['plate_l'] || b.raw_blank[1] > o['plate_w'] }
           unless long.empty?
             warnings << "Wangen-Rohling größer als Rohplatte/Tisch (#{o['plate_l'].round} × #{o['plate_w'].round} mm): " +
-                        long.map { |b| "#{b.label} (#{b.blank.map(&:round).join('×')} mm)" }.join(', ')
+                        long.map { |b| "#{b.label} (#{b.raw_blank.map(&:round).join('×')} mm)" }.join(', ')
           end
           warnings << 'Einzelheiten zur Nacharbeit: Datei …_Wangen_Nacharbeit.txt beim Export.' if boards.any? { |b| !b.notes.empty? }
           o['sat_mode'] = 'fraesen' unless %w[fraesen markieren].include?(o['sat_mode'])
         end
-        g = gap(o)
-        if o['margin'] < o['tool_d'] / 2.0
+        (boards || []).each do |b|
+          w = depth_warning("Wange #{b.label} (#{fmt(b.t)} mm)", outer_tool(o, b.t))
+          warnings << w if w
+        end
+        r_max = parts.map(&:thickness).uniq.map { |th| outer_tool(o, th)[:d] }.max.to_f / 2.0
+        if o['margin'] < r_max
           warnings << 'Randabstand ist kleiner als der Fräserradius – Konturen am Rand werden angeschnitten.'
         end
         if o['einstand'] > 0 && params['construction'] == 'wange' && o['einstand'] >= params['str_t'] * 10 - 5
@@ -105,6 +139,10 @@ module JTools
         sheets = []
         unplaced = []
         parts.group_by(&:thickness).sort.each do |th, list|
+          tl = outer_tool(o, th)
+          w = depth_warning("Platten #{fmt(th)} mm", tl)
+          warnings << w if w
+          g = gap(o, tl[:d])
           nester = Nester.new(length: o['plate_l'], width: o['plate_w'], margin: o['margin'],
                               gap: g, grid: o['grid'], grain: o['grain'])
           unless nester.usable?
@@ -116,7 +154,7 @@ module JTools
           nester.plates.each_with_index do |sh, i|
             area = sh.placements.map { |pl| pl.part.area }.sum
             util = area / (o['plate_l'] * o['plate_w'])
-            sheets << SheetInfo.new(th, i + 1, nester.plates.size, sh.placements, sh.maxx, util)
+            sheets << SheetInfo.new(th, i + 1, nester.plates.size, sh.placements, sh.maxx, util, tl)
           end
         end
         unless unplaced.empty?
@@ -138,7 +176,7 @@ module JTools
           path = File.join(dir, sheet_name(base, sh) + '.tcn')
           Tcn.write(path, sh.placements,
                     length: o['plate_l'], width: o['plate_w'], thickness: sh.thickness,
-                    tool_outer: o['tool_outer'], overcut: o['overcut'], climb: o['climb'],
+                    tool_outer: sh.tool[:nr], overcut: o['overcut'], climb: o['climb'],
                     deco_tool: o['deco_tool'], deco_depth: o['deco_depth'],
                     engrave: o['engrave'], text_h: o['text_h'],
                     pocket_tool: o['pocket_tool'], pocket_d: o['pocket_d'])
@@ -149,7 +187,8 @@ module JTools
           jb.programs.each do |pg|
             path = File.join(dir, "#{base}_Wange_#{jb.label}_Seite#{pg.side}.tcn")
             Tcn.write_job(path, jb, pg,
-                          tool_outer: o['tool_outer'], overcut: o['overcut'], climb: o['climb'],
+                          tool_outer: outer_tool(o, jb.t)[:nr], overcut: o['overcut'], climb: o['climb'],
+                          zstep: o['sat_zstep'],
                           deco_tool: o['deco_tool'], deco_depth: o['deco_depth'])
             files << path
             (bfiles[jb.label] ||= []) << File.basename(path)
@@ -175,8 +214,8 @@ module JTools
             end
           end
           (res.boards || []).each do |jb|
-            rows << ['', jb.label, jb.info + ' (Rohling)', fmt(jb.t), fmt(jb.blank[0]), fmt(jb.blank[1]),
-                     fmt(jb.blank[0] * jb.blank[1] / 1e6, 3), bfiles.fetch(jb.label, []).join(' + '), '', '', '']
+            rows << ['', jb.label, jb.info + ' (Rohling)', fmt(jb.t), fmt(jb.raw_blank[0]), fmt(jb.raw_blank[1]),
+                     fmt(jb.raw_blank[0] * jb.raw_blank[1] / 1e6, 3), bfiles.fetch(jb.label, []).join(' + '), '', '', '']
           end
           res.unplaced.each do |p|
             l, w = p.size
@@ -247,7 +286,11 @@ module JTools
           rows << ['Aufgesattelte Wangen (3D, je ein Programm)', bs.size,
                    bs.sum { |b| b.programs.size }.to_s + ' TCN' + (bs.any? { |b| b.programs.size > 1 } ? ' (mit Wenden)' : '')]
         end
-        rows + by_t
+        tools = res.sheets.map { |sh| [sh.thickness, sh.tool] } + bs.map { |b| [b.t, outer_tool(o, b.t)] }
+        tr = tools.uniq { |th, _| th }.sort_by(&:first).map do |th, tl|
+          ["Außenkontur #{fmt(th)} mm", "Fräser #{tl[:nr]}", "Ø #{fmt(tl[:d], 2)} mm, Tiefe #{fmt(tl[:depth])} mm"]
+        end
+        rows + by_t + tr
       end
     end
   end
