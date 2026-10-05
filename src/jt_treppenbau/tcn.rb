@@ -1,7 +1,7 @@
 # encoding: UTF-8
 # Treppenbau – TCN-Ausgabe für TpaCAD (TPA\ALBATROS\EDICAD 02.00).
 # Format, Kopf und Bearbeitungsblöcke wie dxf4tcn (TcnWriter):
-#   * Gravur Teilenummern – Werkzeug r0 ("werkzeug"), Tiefe r1 ("zkontur")
+#   * Gravur Teilenummern – Werkzeug und Tiefe direkt im Block (keine r-Variablen)
 #   * Nuten (Einstand)    – Nutfräser, exakte Ausstemmungskontur, konzentrisch
 #                           ausgeräumt (innen -> außen, letzte Bahn = Kontur)
 #   * Außenkonturen       – gewählter Fräser, durchgefräst, Korrektur außen,
@@ -62,8 +62,6 @@ module JTools
         ['1|1', '2|2', '3|3', '4|4', '0|0', '0|0', '0|0', '0|0'].each_with_index { |v, i| out << "##{i}=#{v}" }
         out << '}VARV'
         out << 'VAR{'
-        out << "#0=#{n(opts[:deco_tool])}||r|f|werkzeug"
-        out << "#1=#{n(-opts[:deco_depth].to_f.abs)}||r|f|zkontur"
         out << '}VAR'
         out << 'SPEC{' << '}SPEC' << 'INFO{' << '}INFO'
         out << 'OPTI{'
@@ -78,7 +76,7 @@ module JTools
           placements.each do |pl|
             label_strokes(pl, opts[:text_h].to_f).each do |stroke|
               ws += 1
-              out << setup(ws, stroke.first, 'r1', 'r0', 0)
+              out << setup(ws, stroke.first, n(-opts[:deco_depth].to_f.abs), n(opts[:deco_tool]), 0)
               lines(stroke).each { |l| out << l }
             end
           end
@@ -112,8 +110,8 @@ module JTools
       end
 
       # Ein Programm einer aufgesattelten Wange (Wange3d::Prog) – Rohling je Wange.
-      # Reihenfolge (WS): Gravur/Markierung, Ausräumen, Schrägen (Hilfsflächen
-      # GSIDE#7…, Seitenaggregat), Außenkontur zuletzt.
+      # Reihenfolge (WS): Gravur/Markierung, Außenkontur in Stufen (zstep),
+      # danach Schrägen (Hilfsflächen GSIDE#7…, Seitenaggregat).
       def write_job(path, job, prog, opts)
         File.open(path, 'wb') do |io|
           text = build_job(job, prog, opts).join("\r\n") + "\r\n"
@@ -124,7 +122,9 @@ module JTools
 
       def build_job(job, prog, opts)
         t = job.t
-        l, w = job.blank
+        l, w = prog.side == 1 ? job.raw_blank : job.blank
+        off = prog.side == 1 ? job.raw_off : 0.0
+        shift = ->(q) { [q[0] + off, q[1] + off] }
         nf = prog.faces.size
         sides = [1] + (0...nf).map { |i| 7 + i }
         out = []
@@ -140,8 +140,6 @@ module JTools
         ['1|1', '2|2', '3|3', '4|4', '0|0', '0|0', '0|0', '0|0'].each_with_index { |v, i| out << "##{i}=#{v}" }
         out << '}VARV'
         out << 'VAR{'
-        out << "#0=#{n(opts[:deco_tool])}||r|f|werkzeug"
-        out << "#1=#{n(-opts[:deco_depth].to_f.abs)}||r|f|zkontur"
         out << '}VAR'
         out << 'SPEC{' << '}SPEC' << 'INFO{' << '}INFO'
         out << 'OPTI{'
@@ -152,7 +150,7 @@ module JTools
           out << 'GEO{' << "::NF=#{nf}"
           prog.faces.each_with_index do |fc, i|
             out << "GSIDE##{7 + i}{"
-            fc[:corners].each_with_index { |c, k| out << "##{k + 1}=#{n(c[0])}|#{n(c[1])}|#{n(c[2])}" }
+            fc[:corners].each_with_index { |c, k| out << "##{k + 1}=#{n(c[0] + off)}|#{n(c[1] + off)}|#{n(c[2])}" }
             out << "#Z=#{n(fc[:depth_z])}" << '}GSIDE'
           end
           out << '}GEO'
@@ -160,13 +158,13 @@ module JTools
         out << 'SIDE#0{' << '}SIDE'
         ws = 0
         side1 = []
-        contour = nil
-        prog.ops.each do |kind, pts|
+        prog.ops.each do |kind, pts, mode|
           next if pts.nil? || pts.size < 2
+          pts = pts.map(&shift)
           case kind
           when :mark
             ws += 1
-            side1 << setup(ws, pts.first, 'r1', 'r0', 0)
+            side1 << setup(ws, pts.first, n(-opts[:deco_depth].to_f.abs), n(opts[:deco_tool]), 0)
             side1.concat(lines(pts))
           when :clear
             [-(t / 2.0), -(t + opts[:overcut].to_f)].each do |z|
@@ -174,8 +172,28 @@ module JTools
               side1 << setup(ws, pts.first, n(z), n(opts[:tool_outer]), 0)
               side1.concat(lines(pts))
             end
-          when :contour
-            contour = pts
+          when :contour, :format
+            # Formatieren und Außenkontur: Korrektur außen, stufenweise
+            final = case mode
+                    when :leave_rest then [t - Wange3d::REST_T, 1.0].max
+                    when :finish_rest then [Wange3d::REST_T, t].min + opts[:overcut].to_f
+                    else t + opts[:overcut].to_f
+                    end
+            dir = opts[:climb] ? :cw : :ccw
+            if mode.is_a?(Hash)
+              # Teilstück der Kontur (offen), in Umlaufrichtung dir
+              seq = mode[:idx].map { |i| pts[i] }
+              ccw = Geo.signed_area(pts) > 0
+              seq.reverse! if (dir == :cw) == ccw
+            else
+              loop_ = orient(pts, dir)
+              seq = loop_ + [loop_.first]
+            end
+            step_depths(final, opts[:zstep]).each do |z|
+              ws += 1
+              side1 << setup(ws, seq.first, n(-z), n(opts[:tool_outer]), opts[:climb] ? 1 : 2)
+              side1.concat(lines(seq))
+            end
           end
         end
         agg = prog.faces.each_with_index.map do |fc, i|
@@ -187,18 +205,25 @@ module JTools
           end
           blk << '}SIDE'
         end
-        if contour
-          loop_ = orient(contour, opts[:climb] ? :cw : :ccw)
-          ws += 1
-          side1 << setup(ws, loop_.first, n(-(t + opts[:overcut].to_f)), n(opts[:tool_outer]), opts[:climb] ? 1 : 2)
-          side1.concat(lines(loop_ + [loop_.first]))
-        end
         out << 'SIDE#1{' << "$=#{job.label} Seite #{prog.side}"
         out.concat(side1)
         out << '}SIDE'
         (3..6).each { |sd| out << "SIDE##{sd}{" << '}SIDE' }
         agg.each { |blk| out.concat(blk) }
         out
+      end
+
+      # Zustelltiefen: step, 2·step, … bis zur Endtiefe (step <= 0: ein Umlauf)
+      def step_depths(final, step)
+        step = step.to_f
+        return [final] if step <= 0.0
+        ds = []
+        d = step
+        while d < final - 0.05
+          ds << d
+          d += step
+        end
+        ds << final
       end
 
       def setup(ws, start, z, tool, comp)

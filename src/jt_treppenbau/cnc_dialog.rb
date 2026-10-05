@@ -1,7 +1,8 @@
 # encoding: UTF-8
 # Treppenbau – Dialog „CNC-Export (TCN)“ – verknüpft mit dxf4tcn:
-# Fräser, Durchfräsen, Fräsrichtung, Gravurwerkzeug/-tiefe, TpaCAD-Pfad und
-# letzter Ordner werden mit den dxf4tcn-Einstellungen geteilt.
+# Durchfräsen, Fräsrichtung, Gravurwerkzeug/-tiefe, TpaCAD-Pfad und letzter
+# Ordner werden mit den dxf4tcn-Einstellungen geteilt. Der Fräser für die
+# Außenkonturen ist eigene Einstellung (0 = automatisch nach Materialstärke).
 
 require 'json'
 
@@ -10,7 +11,7 @@ module JTools
     class CncDialog
       PREF = 'JT_Treppenbau_CNC'.freeze
       DXF4TCN = 'dxf4tcn'.freeze
-      SHARED = %w[tool_outer overcut climb deco_tool deco_depth open_tpa].freeze
+      SHARED = %w[overcut climb deco_tool deco_depth open_tpa].freeze
 
       @current = nil
       class << self
@@ -43,9 +44,10 @@ module JTools
           ns = SHARED.include?(k) ? DXF4TCN : PREF
           o[k] = Sketchup.read_default(ns, k, d)
         end
-        tool = o['tool_outer'].to_i
-        o['tool_d'] = Sketchup.read_default(PREF, "tool_d_#{tool}", default_d(tool))
-        Cnc.normalize(o)
+        o = Cnc.normalize(o)
+        o['tool_outer'] = Cnc::TOOL_AUTO unless o['tool_outer'] == Cnc::TOOL_AUTO || Cnc.tool_info(o['tool_outer'])
+        o['tool_d'] = tool_d(o['tool_outer'])
+        o
       end
 
       def self.save_opts(o)
@@ -54,12 +56,14 @@ module JTools
           ns = SHARED.include?(k) ? DXF4TCN : PREF
           Sketchup.write_default(ns, k, v)
         end
-        Sketchup.write_default(PREF, "tool_d_#{o['tool_outer'].to_i}", o['tool_d'])
+        return if o['tool_outer'].to_i == Cnc::TOOL_AUTO
+        Sketchup.write_default(PREF, "tool_dia_#{o['tool_outer'].to_i}", o['tool_d'])
       end
 
-      def self.default_d(tool)
-        t = Cnc::OUTER_TOOLS.find { |_, nr, _| nr == tool }
-        t ? t[2] : 12.0
+      # Ø des gewählten Fräsers (gespeicherte Anpassung oder Werkzeugliste)
+      def self.tool_d(tool)
+        t = Cnc.tool_info(tool.to_i == Cnc::TOOL_AUTO ? Cnc::AUTO_ORDER.first : tool.to_i)
+        Sketchup.read_default(PREF, "tool_dia_#{tool.to_i}", t ? t[2] : 12.0).to_f
       end
 
       # --- Dialog -----------------------------------------------------------
@@ -76,7 +80,7 @@ module JTools
         @dlg.add_action_callback('ready') { |_c| send_init }
         @dlg.add_action_callback('compute') { |_c, json| on_compute(json) }
         @dlg.add_action_callback('export') { |_c, json| on_export(json) }
-        @dlg.add_action_callback('tooldia') { |_c, tool| js("CNC.setToolDia(#{Sketchup.read_default(PREF, "tool_d_#{tool.to_i}", CncDialog.default_d(tool.to_i)).to_f})") }
+        @dlg.add_action_callback('tooldia') { |_c, tool| js("CNC.setToolDia(#{CncDialog.tool_d(tool)})") }
         @dlg.add_action_callback('tpacad') { |_c| choose_tpacad }
         @dlg.add_action_callback('close') { |_c| @dlg.close }
         @dlg.set_on_closed { CncDialog.current = nil if CncDialog.current == self }
@@ -93,7 +97,8 @@ module JTools
         var = Params::VARIANTS.find { |v| v[0] == p['variant'] }
         data = {
           opts: CncDialog.load_opts,
-          tools: Cnc::OUTER_TOOLS.map { |n, nr, d| { name: n, nr: nr, d: d } },
+          tools: [{ name: 'Automatisch (1300, bei zu großer Stärke 1004)', nr: Cnc::TOOL_AUTO, d: 0 }] +
+                 Cnc::OUTER_TOOLS.map { |n, nr, d, mx| { name: n, nr: nr, d: d, max: mx } },
           stair: "#{var ? var[1] : p['variant']} – #{cons ? cons[1] : p['construction']}",
           construction: p['construction'],
           risers: p['risers'],
