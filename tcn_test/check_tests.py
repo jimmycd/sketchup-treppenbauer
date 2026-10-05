@@ -142,4 +142,23 @@ print('D2_wenden_seite2.tcn')
 p = sides[5][0]; pts = [(200 - x, y) for x, y in p['pts']]   # gespiegelt: u = 200 − x'
 ci, rest, under = check_wedge(pts, 40)
 report('D2', ci < 0.01 and rest < 1.0, f"Schräge 2: in Material {ci:.3f} mm², Rest {rest:.2f} mm², unter Brett {under:.1f} mm, Tiefe {p['z']} (Soll -75)")
+
+# D2: Außenkontur zuletzt (gespiegelt), Teil darf nicht angeschnitten werden
+import numpy as np
+xs = np.linspace(10, 490, 25)
+part = [(x, 20 + 25 * ((x - 250) / 240) ** 2) for x in xs] + [(490, 245), (300, 245), (300, 175), (150, 175), (150, 100), (10, 100)]
+pm = Polygon([(500 - x, y) for x, y in part])
+cont = [p for p in sides[1] if p['tool'] == 1000]
+ring = Polygon(cont[0]['pts'])
+report('D2', abs(ring.symmetric_difference(pm).area) < 1.0 and cont[0]['z'] == '-41',
+       f"Außenkontur = gespiegeltes Teil (Abweichung {ring.symmetric_difference(pm).area:.2f} mm²), Tiefe {cont[0]['z']}, Korrektur links")
+fig, ax = plt.subplots(figsize=(9, 6))
+ax.plot(*box(0, 0, 500, 250).exterior.xy, 'k-', lw=0.8)
+ax.fill(*pm.exterior.xy, color='#d9b38c', alpha=0.6, label='Teil (nach dem Wenden)')
+ax.plot(*pm.buffer(6).exterior.xy, color='#1f4e79', lw=1, label='Fräsermitte Außenkontur (zuletzt)')
+for p in sides[5]:
+    pass
+ax.plot([200, 200], [175, 250], color='#27ae60', lw=3, label='Achse Aggregat Schräge 2')
+ax.set_aspect('equal'); ax.legend(loc='lower right', fontsize=7); ax.set_title('D2_wenden_seite2.tcn')
+fig.savefig('D2_wenden_seite2.png', dpi=110, bbox_inches='tight'); plt.close(fig)
 print('GESAMT', 'ok' if ok else 'FEHLER')

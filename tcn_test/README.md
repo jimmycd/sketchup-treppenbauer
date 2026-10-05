@@ -17,8 +17,15 @@ Prinzip: Von oben wird die Ausklinkung senkrecht bis zur **materialseitigen** La
 | `A_seite5.tcn` | 400 × 250 | Ausklinkung oben links (Auflager y = 150, Stoß x = 150 unten / 190 oben). Schräge auf **Fläche 5** (hinten, y = 250), Spindel zeigt in −Y | Aggregatbahn (Fräsermitte) liegt bei **x ≈ 112…189** (links vom Zahn), Tiefe 100 mm ab Fläche 5 bis aufs Auflager |
 | `B_gside_30grad.tcn` | 400 × 260 | gleiche Schräge, aber Treppen-Senkrechte um **30°** gedreht → **Hilfsfläche 7** (`GEO`/`GSIDE`), C-Achse 30° | Aggregat dreht 30°, Bahn an der schrägen Stoßkante (grün in `B_gside_30grad.png`), Tiefe 150 |
 | `C_markierung.tcn` | 400 × 250 | wie A, ohne Aggregat; **Markierung** (Gravur 1 mm): Linie x = 190 (Oberkante der Schräge) + Querstrich 20 mm über dem Auflager | Linien für Handnacharbeit sichtbar |
-| `D1_wenden_seite1.tcn` | 500 × 250 | 2 Ausklinkungen mit **entgegengesetzter** Schräge. Seite 1: beide ausräumen, Schräge 1 mit Aggregat, Markierung x = 340 („Schräge 2 unten bis hier“) | |
-| `D2_wenden_seite2.tcn` | 500 × 250 | Brett **um die Y-Achse wenden** (links ↔ rechts, Anschlag an den Rohlingskanten, gleiche Nullecke). Schräge 2 mit Aggregat, Tiefe 75 | Fräsermitte bei x′ ≈ 161…238 (nach dem Wenden), rechts von der Stoßkante |
+| `D1_wenden_seite1.tcn` | 500 × 250 | 2 Ausklinkungen mit **entgegengesetzter** Schräge. Seite 1: Auflager **aus dem Vollen** ausräumen, Schräge 1 mit Aggregat, Markierung x = 340 („Schräge 2 unten bis hier“). **Keine Außenkontur** – der Rohling bleibt rechteckig | |
+| `D2_wenden_seite2.tcn` | 500 × 250 | Brett **um die Y-Achse wenden** (links ↔ rechts, Anschlag an den Rohlingskanten, gleiche Nullecke). Schräge 2 mit Aggregat, **zuletzt Außenkontur** (Unterkante bogenförmig, Fräser 1000, durch 41 mm, Korrektur links/Gleichlauf wie Plugin) | Fräsermitte Schräge bei x′ ≈ 161…238; Kontur siehe `D2_wenden_seite2.png` |
+
+Ablauf bei Wenden (gilt auch für bogenförmige Wangen): Rohling bleibt bis zum Schluss rechteckig
+→ Seite 1: Auflager aus dem Vollen, Schrägen Seite 1 → wenden, an den Rohlingskanten ausrichten
+→ Seite 2: Schrägen Seite 2 → **Außenkontur zuletzt**. In `D2` steht die Kontur im Block
+SIDE#1 mit `WS=2`, die Schräge in SIDE#5 mit `WS=1` – bitte in der Bearbeitungsliste von
+TpaCAD prüfen, dass die **Schräge vor der Kontur** läuft (sonst ist das Teil beim Fräsen der
+Schräge schon frei).
 
 ## Bitte in dieser Reihenfolge testen
 1. **Nur TpaCAD (Simulation/3D-Ansicht)** – öffnet die Datei ohne Fehler? Wird 15001 als
@@ -37,3 +44,9 @@ Prinzip: Von oben wird die Ausklinkung senkrecht bis zur **materialseitigen** La
 - Hilfsfläche: `GEO{ ::NF=1 GSIDE#7{ #1 #2 #3 #Z }GSIDE }GEO` vor den SIDE-Blöcken,
   rechtshändig (X × Y = Normale nach außen), `#Z=300`.
 - `#201=1 #203=1 #1001=100` wie bei den Fräsungen von oben.
+
+## E_beispiel_l_wendel/ – Export aus dem Plugin (2.7.0)
+Echter Export einer L-Treppe mit Wendelstufen, beide Seiten aufgesattelt (Optionen: Aggregat fräsen,
+Wenden ein, Gravur ein): je Wange `…_Seite1.tcn` (+ `…_Seite2.tcn`), `…_Wangen_Nacharbeit.txt`,
+`l_wendel.png` = Draufsicht aller Programme (blau = Ausräumen, grün = Aggregatachse je Schräge,
+rot = Markierung/Gravur, dunkel = Außenkontur zuletzt). Erst testen, wenn A/B in TpaCAD passen.

@@ -7,6 +7,12 @@ include JTools::Treppenbau
 
 def rect(b)
   n = Geo.right(b[:dir]); h = b[:t] / 2.0
+  if b[:faces]
+    # Grundriss aus den Flächenumrissen (schräge Enden / Gehrung)
+    m, p = b[:faces].map { |fp| fp.map(&:first).minmax }
+    at = ->(u, f) { Geo.add(Geo.add(b[:origin], Geo.mul(b[:dir], u)), Geo.mul(n, f * h)) }
+    return [at.(m[0], -1), at.(m[1], -1), at.(p[1], 1), at.(p[0], 1)]
+  end
   e = Geo.add(b[:origin], Geo.mul(b[:dir], b[:len]))
   [Geo.add(b[:origin], Geo.mul(n, -h)), Geo.add(e, Geo.mul(n, -h)), Geo.add(e, Geo.mul(n, h)), Geo.add(b[:origin], Geo.mul(n, h))]
 end

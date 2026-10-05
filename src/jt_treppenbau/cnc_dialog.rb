@@ -98,6 +98,7 @@ module JTools
           construction: p['construction'],
           risers: p['risers'],
           rail: p['rail'],
+          sattel: p['construction'] == 'wange' && [p['side_left'], p['side_right']].include?('sattel'),
           tpacad: Sketchup.read_default(DXF4TCN, 'tpacad_exe', '').to_s
         }
         js("CNC.init(#{JSON.generate(data)})")
@@ -126,7 +127,7 @@ module JTools
 
       def on_export(json)
         o, res = compute(json)
-        if res.sheets.empty?
+        if res.sheets.empty? && (res.boards || []).empty?
           UI.messagebox('Keine Teile zum Exportieren.')
           return
         end

@@ -194,13 +194,17 @@ out << 'SIDE#1{' << '$=Markierung + Ausklinkung'; out.concat(p1.to_a); out << '}
 write('C_markierung.tcn', out)
 
 # ---------------------------------------------------------------- D (Wenden)
+# Ablauf bei Wenden (auch für bogenförmige Wangen): der Rohling bleibt bis zum
+# Schluss rechteckig, damit er nach dem Wenden an den Rohlingskanten wieder
+# ausgerichtet werden kann.
+#   Seite 1: Auflager aus dem Vollen ausräumen, Schräge 1 mit Aggregat,
+#            Markierung „Schräge 2 unten bis x = 340“. KEINE Außenkontur.
+#   Seite 2: Brett um die Y-Achse wenden (links <-> rechts, gleiche Nullecke,
+#            Anschlag an den Rohlingskanten), Schräge 2 mit Aggregat,
+#            ZULETZT Außenkontur (hier mit bogenförmiger Unterkante).
 # Rohling 500 × 250 × 40, zwei Ausklinkungen mit entgegengesetzter Neigung:
 #   1: Auflager y = 100, Stoß x = 150 unten / 190 oben  (Keil oben  -> Seite 1)
 #   2: Auflager y = 175, Stoß x = 340 unten / 300 oben  (Keil unten -> Seite 2)
-# Seite 1: beide Ausklinkungen von oben (Stoß 2 an der oberen Lage x = 300),
-#          Schräge 1 mit Aggregat, Markierung „Schräge 2 unten bis x = 340“.
-# Seite 2: Brett um die Y-Achse wenden (links <-> rechts, gleiche Nullecke,
-#          Anschlag an den Rohlingskanten), Schräge 2 mit Aggregat.
 l = 500.0; w = 250.0
 p1 = Prog.new
 p1.path([[340.0, 175.0], [340.0, 250.0]], 'r1', 'r0')
@@ -210,11 +214,20 @@ p5 = Prog.new
 wp = wedge_path(40.0)
 p5.path(wp.map { |v| [150.0 + v[0], v[1]] }, n(-150), T_AGG)
 out = header(l, w, [1, 5])
-out << 'SIDE#1{' << '$=Seite 1 von oben'; out.concat(p1.to_a); out << '}SIDE'
+out << 'SIDE#1{' << '$=Seite 1 von oben (ohne Aussenkontur)'; out.concat(p1.to_a); out << '}SIDE'
 out.concat(side_empty.(3)) << 'SIDE#4{' << '}SIDE'
 out << 'SIDE#5{' << '$=Seite 1 Schraege 1'; out.concat(p5.to_a); out << '}SIDE'
 out.concat(side_empty.(6))
 write('D1_wenden_seite1.tcn', out)
+
+# Teil (Koordinaten Seite 1): Unterkante als Bogen, Enden x = 10 / 490,
+# oben 245, senkrechte Kontur an den Stößen an der materialseitigen Lage
+# (Stoß 1: x = 150, Stoß 2: x = 300) – dort liegt sie in der schon
+# ausgeräumten Luft bzw. auf der fertigen Kante.
+yb = ->(x) { 20.0 + 25.0 * ((x - 250.0) / 240.0)**2 }
+part = (0..24).map { |i| x = 10.0 + 480.0 * i / 24; [x, yb.(x)] } +
+       [[490.0, 245.0], [300.0, 245.0], [300.0, 175.0], [150.0, 175.0], [150.0, 100.0], [10.0, 100.0]]
+D_PART = part
 
 # Seite 2: x' = 500 − x. Stoß 2 jetzt oben bei x' = 160, unten bei x' = 200,
 # Luft auf der +x'-Seite -> Spiegelbild von wedge_path.
@@ -222,9 +235,21 @@ p5 = Prog.new
 wp = wedge_path(40.0)
 mir = ->(uz) { [200.0 - uz[0], uz[1]] }
 p5.path(wp.map { |v| mir.(v) }, n(-75), T_AGG)
-out = header(l, w, [5])
+# Außenkontur zuletzt: gespiegelt, im Uhrzeigersinn, Korrektur links (#40=1)
+# wie im Plugin (Gleichlauf), durchgefräst 41 mm, Start in der Mitte der Unterkante.
+ring = part.map { |x, y| [500.0 - x, y] }
+area = ring.each_with_index.sum { |(x0, y0), i| x1, y1 = ring[(i + 1) % ring.size]; x0 * y1 - x1 * y0 }
+ring.reverse! if area > 0                 # -> Uhrzeigersinn
+k = ring.each_index.min_by { |i| (ring[i][0] - 250.0).abs + ring[i][1] }
+ring = ring.rotate(k)
+pc = Prog.new
+pc.path(ring + [ring.first], n(-41), T_MILL, 1)
+out = header(l, w, [1, 5])
 out << 'SIDE#1{' << '}SIDE'
 out.concat(side_empty.(3)) << 'SIDE#4{' << '}SIDE'
 out << 'SIDE#5{' << '$=Seite 2 Schraege 2'; out.concat(p5.to_a); out << '}SIDE'
 out.concat(side_empty.(6))
+# Außenkontur als eigener Block NACH der Schräge (Reihenfolge in TpaCAD prüfen!)
+i1 = out.index('SIDE#1{')
+out[i1 + 1, 0] = ['$=Seite 2 Aussenkontur zuletzt'] + pc.to_a.map { |ln| ln.sub('WS=1 ', "WS=#{p5.ws + 1} ") }
 write('D2_wenden_seite2.tcn', out)

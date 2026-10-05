@@ -111,6 +111,96 @@ module JTools
         out
       end
 
+      # Ein Programm einer aufgesattelten Wange (Wange3d::Prog) – Rohling je Wange.
+      # Reihenfolge (WS): Gravur/Markierung, Ausräumen, Schrägen (Hilfsflächen
+      # GSIDE#7…, Seitenaggregat), Außenkontur zuletzt.
+      def write_job(path, job, prog, opts)
+        File.open(path, 'wb') do |io|
+          text = build_job(job, prog, opts).join("\r\n") + "\r\n"
+          io.write(text.encode('Windows-1252', invalid: :replace, undef: :replace, replace: '_'))
+        end
+        path
+      end
+
+      def build_job(job, prog, opts)
+        t = job.t
+        l, w = job.blank
+        nf = prog.faces.size
+        sides = [1] + (0...nf).map { |i| 7 + i }
+        out = []
+        out << 'TPA\\ALBATROS\\EDICAD\\02.00:1224:r0w0h0s1'
+        out << "::SIDE=#{sides.map { |x| "#{x};" }.join}"
+        out << "::UNm DL=#{n(l)} DH=#{n(w)} DS=#{n(t)}"
+        out << "'tcn version=2.6.14"
+        out << "'code=ansi"
+        out << "'Treppenbau #{job.label} Seite #{prog.side}"
+        out << 'EXE{' << '#0=0' << '#1=0' << '#2=0' << '#3=0' << '#4=0' << '}EXE'
+        out << 'OFFS{' << '#0=0|0' << '#1=0|0' << '#2=0|0' << '}OFFS'
+        out << 'VARV{'
+        ['1|1', '2|2', '3|3', '4|4', '0|0', '0|0', '0|0', '0|0'].each_with_index { |v, i| out << "##{i}=#{v}" }
+        out << '}VARV'
+        out << 'VAR{'
+        out << "#0=#{n(opts[:deco_tool])}||r|f|werkzeug"
+        out << "#1=#{n(-opts[:deco_depth].to_f.abs)}||r|f|zkontur"
+        out << '}VAR'
+        out << 'SPEC{' << '}SPEC' << 'INFO{' << '}INFO'
+        out << 'OPTI{'
+        out << ':: OPTDEF=1 OPTIMIZE=%;0 OPTMIN=0 OPT3=0 OPT0=0 OPTTOOL=0 OPT2=0 OPTX=0 OPTY=0 OPTR=0 ' \
+               'OPT4=0 OPT6=0 OPT7=0 LSTCOD=0%1%2%3 LTOOLFR=0 LTOOLPN=0 OPTF1=0 OOO=0.5'
+        out << '}OPTI' << 'LINK{' << '}LINK'
+        unless nf.zero?
+          out << 'GEO{' << "::NF=#{nf}"
+          prog.faces.each_with_index do |fc, i|
+            out << "GSIDE##{7 + i}{"
+            fc[:corners].each_with_index { |c, k| out << "##{k + 1}=#{n(c[0])}|#{n(c[1])}|#{n(c[2])}" }
+            out << "#Z=#{n(fc[:depth_z])}" << '}GSIDE'
+          end
+          out << '}GEO'
+        end
+        out << 'SIDE#0{' << '}SIDE'
+        ws = 0
+        side1 = []
+        contour = nil
+        prog.ops.each do |kind, pts|
+          next if pts.nil? || pts.size < 2
+          case kind
+          when :mark
+            ws += 1
+            side1 << setup(ws, pts.first, 'r1', 'r0', 0)
+            side1.concat(lines(pts))
+          when :clear
+            [-(t / 2.0), -(t + opts[:overcut].to_f)].each do |z|
+              ws += 1
+              side1 << setup(ws, pts.first, n(z), n(opts[:tool_outer]), 0)
+              side1.concat(lines(pts))
+            end
+          when :contour
+            contour = pts
+          end
+        end
+        agg = prog.faces.each_with_index.map do |fc, i|
+          blk = ["SIDE##{7 + i}{", "$=Schraege Aggregat #{fc[:tool]}"]
+          fc[:paths].each do |seq, depth|
+            ws += 1
+            blk << setup(ws, seq.first, n(depth), n(fc[:tool]), 0)
+            blk.concat(lines(seq))
+          end
+          blk << '}SIDE'
+        end
+        if contour
+          loop_ = orient(contour, opts[:climb] ? :cw : :ccw)
+          ws += 1
+          side1 << setup(ws, loop_.first, n(-(t + opts[:overcut].to_f)), n(opts[:tool_outer]), opts[:climb] ? 1 : 2)
+          side1.concat(lines(loop_ + [loop_.first]))
+        end
+        out << 'SIDE#1{' << "$=#{job.label} Seite #{prog.side}"
+        out.concat(side1)
+        out << '}SIDE'
+        (3..6).each { |sd| out << "SIDE##{sd}{" << '}SIDE' }
+        agg.each { |blk| out.concat(blk) }
+        out
+      end
+
       def setup(ws, start, z, tool, comp)
         "W#89{ ::WTs WS=#{ws}  #8015=0 #1=#{n(start[0])} #2=#{n(start[1])} #3=#{z} " \
           "#201=1 #203=1 #205=#{tool} #1001=100 #8101=0 #8096=0 #40=#{comp} #46=1 " \
