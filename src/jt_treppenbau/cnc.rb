@@ -167,7 +167,12 @@ module JTools
                         long.map { |b| "#{b.label} (#{b.raw_blank.map(&:round).join('×')} mm)" }.join(', ') +
                         (long.any? { |b| b.raw_blank[1] > table_w(o) + 1e-6 } ? ' – breiter als die Maschine: keine TCN' : '')
           end
-          warnings << 'Einzelheiten zur Nacharbeit: Datei …_Nacharbeit.txt beim Export.' if boards.any? { |b| !b.notes.empty? }
+          nd = boards.sum { |b| (b.dowels || []).size }
+          if nd > 0
+            warnings << "#{nd} Dübel Stufe – aufgesattelte Wange: Wange mit dem Bohraggregat in die Auflagerkante, " \
+                        'Stufen von unten von Hand nach der Bohrliste in …_Nacharbeit.txt.'
+          end
+          warnings << 'Einzelheiten zur Nacharbeit: Datei …_Nacharbeit.txt beim Export.' if boards.any? { |b| !b.notes.empty? || !(b.dowels || []).empty? }
           o['sat_mode'] = 'fraesen' unless %w[fraesen markieren].include?(o['sat_mode'])
         end
         o['drill_wange'] = 'bohren' unless %w[bohren markieren].include?(o['drill_wange'])
@@ -230,7 +235,8 @@ module JTools
       # Optionen für Lauf.from_job (wie Tcn.write_job)
       def job_opts(o, t)
         { tool_outer: outer_tool(o, t)[:nr], overcut: o['overcut'], climb: o['climb'],
-          zstep: o['sat_zstep'], deco_tool: o['deco_tool'], deco_depth: o['deco_depth'] }
+          zstep: o['sat_zstep'], deco_tool: o['deco_tool'], deco_depth: o['deco_depth'],
+          drill_wange: o['drill_wange'], drill_clear: o['drill_clear'], hdrill_tool: o['hdrill_tool'] }
       end
 
       # Aufgesattelte Wange: Programme je Seite in Läufe teilen (Job#splits)
@@ -348,7 +354,7 @@ module JTools
           end
         end
         notes = (res.boards || []).flat_map(&:notes) + (res.longs || []).flat_map(&:notes)
-        man = manual_notes(res.manual || [])
+        man = manual_notes(res.manual || []) + dowel_notes(res.boards || [])
         unless notes.empty? && man.empty?
           txt = File.join(dir, "#{base}_Nacharbeit.txt")
           n_w = (res.boards || []).size + (res.longs || []).size
@@ -444,6 +450,29 @@ module JTools
         lines
       end
 
+      # Bohrliste der Dübel Stufe – aufgesattelte Wange (Stufe von unten, von
+      # Hand; die Wange bohrt die CNC bzw. markiert sie)
+      def dowel_notes(boards)
+        list = boards.flat_map { |jb| (jb.dowels || []).map { |dw| [jb, dw] } }
+        return [] if list.empty?
+        lines = ["Dübel Trittstufen – aufgesattelte Wange (#{list.size} Stück): Stufen von unten bohren (von Hand)"]
+        lines << '  Abstand von der Stufenvorderkante (rechtwinklig) und vom Stufenende (außen bzw. innen), mm.'
+        lines << '  Gegenbohrung in der Auflagerkante der Wange: CNC (Bohraggregat) bzw. markiert.'
+        list.group_by { |_, dw| dw[:k] }.sort.each do |k, l|
+          l.sort_by! { |_, dw| dw[:front] }
+          l.group_by { |jb, _| jb.sb[:which] }.sort_by { |w, _| w == :outer ? 0 : 1 }.each do |which, ll|
+            dw0 = ll[0][1]
+            lines << "  #{dw0[:label]} #{which == :outer ? 'außen' : 'innen'} (Wange #{ll.map { |jb, _| jb.label }.uniq.join(', ')}): " +
+                     (ll.map { |_, dw| fmt(dw[:side] * 10.0, 0) }.uniq.size == 1 ?
+                       ll.map { |_, dw| fmt(dw[:front] * 10.0, 0) }.join(' und ') + " von vorne, #{fmt(dw0[:side] * 10.0, 0)} vom Ende; " :
+                       ll.map { |_, dw| "#{fmt(dw[:front] * 10.0, 0)}/#{fmt(dw[:side] * 10.0, 0)}" }.join(' und ') + ' (von vorne/vom Ende); ') +
+                     "Ø #{fmt(dw0[:d] * 10.0)}, Tiefe #{ll.map { |_, dw| fmt(dw[:depth_t] * 10.0) }.uniq.join('/')} (Wange #{fmt(dw0[:depth_w] * 10.0)})"
+          end
+        end
+        lines << ''
+        lines
+      end
+
       # Werkstattliste der Pfosten: Taschen (Stufen) und Bohrungen je Fläche
       def post_sheet(posts)
         lines = ['Geländerpfosten – Taschen und Bohrungen (mm)',
@@ -500,7 +529,8 @@ module JTools
               walls: jb.walls.map do |w|
                 { how: w[:how].to_s, rest: (w[:rest] || 0).round,
                   line: pv_line(jb, w[:u_top][0], w), line2: pv_line(jb, w[:u_top][1], w) }
-              end
+              end,
+              drills: jb.programs.flat_map { |pg| pg.drills || [] }.map { |h| [h[:x].round(1), h[:y].round(1), h[:d].round(1), h[:depth].round(1), h[:ang]] }
             }
           end + (res.longs || []).map do |lp|
             pg = lp.prog
@@ -557,6 +587,8 @@ module JTools
         unless ls.empty?
           rows << ['Wangen, Handläufe und Pfosten mit eigenem Rohling', ls.size, ls.sum { |lp| lp.split[:runs].size }.to_s + ' TCN']
         end
+        nd = bs.sum { |b| (b.dowels || []).size }
+        rows << ['Dübel Stufe – aufgesattelte Wange', nd, (o['drill_wange'] == 'markieren' ? 'Wange markiert' : 'Wange mit Aggregat') + ', Stufen von Hand (…_Nacharbeit.txt)'] if nd > 0
         ma = res.manual || []
         rows << ['Nicht gefräst (Stäbe, gerade Handläufe)', ma.size, 'Teileliste und …_Nacharbeit.txt'] unless ma.empty?
         rows << ['Überlange Wangen (2 Läufe, drehen)', nrun, "Verfahrweg #{fmt(o['mach_l'], 0)} mm"] if nrun > 0

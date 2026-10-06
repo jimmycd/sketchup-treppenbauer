@@ -340,8 +340,19 @@ module JTools
             xr: face_range(corners, fc[:paths], fc[:r] || 0.0),
             body: fc[:paths].map { |seq, depth| [:mill, seq, depth, fc[:tool]] } }
         end
+        # Dübel in der Auflagerkante: Bohraggregat bzw. nur markieren
+        drills = (prog.drills || []).map { |h| h.merge(x: h[:x] + off, y: h[:y] + off) }
+        drills.each do |h|
+          if opts[:drill_wange].to_s == 'markieren'
+            a = [h[:x], h[:y]]
+            ops << { k: :mill, pts: [a, Geo.add(a, Geo.mul(Tcn.drill_dir(h), h[:depth]))],
+                     z: -opts[:deco_depth].to_f.abs, tool: opts[:deco_tool], comp: 0 }
+          else
+            faces << drill_face(h, t, opts[:drill_clear].to_f, opts[:hdrill_tool])
+          end
+        end
         { l: l, w: w, t: t, title: "#{job.label} Seite #{prog.side}",
-          comments: ["'Treppenbau #{job.label} Seite #{prog.side}"], ops: ops, faces: faces }
+          comments: ["'Treppenbau #{job.label} Seite #{prog.side}"], ops: ops, faces: faces, drills: drills }
       end
 
       # x-Bereich einer Aggregat-Bearbeitung im Tisch: Bahnpunkte (fx) auf der

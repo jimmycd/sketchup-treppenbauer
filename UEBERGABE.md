@@ -1,4 +1,4 @@
-# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.17.0, 06.10.2026 – `main`)
+# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.19.0, 06.10.2026 – `main`)
 
 ## Was es ist
 SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Export nach TCN (TpaCAD), angelehnt an Jürgens Plugin **dxf4tcn**.
@@ -33,6 +33,14 @@ Gearbeitet wird nur im GitHub-Repo `jimmycd/sketchup-treppenbauer` (nicht mehr i
 
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
+
+## Version 2.19.0 – Dübel Stufe – aufgesattelte Wange
+- Neue Parameter `sat_dowels` (Dübel je Auflager, Standard 2, 0 = keine) und `sat_dowel_d` (Ø, Standard 1,0 cm), Gruppe Tragkonstruktion, nur bei aufgesattelter Wange. Bohrtiefe je Teil = `dowel_depth`, in der Stufe höchstens `tread_t − 1`.
+- Lage (`Stringers.sattel_dowels`): je Auflager (waagerechtes Stück der Oberkante, auf beiden Brettflächen vorhanden) gleichmäßig verteilt (bei 2 auf ¼ und ¾), mindestens 2·Ø vom Auflagerende, mittig in der Wangendicke. Liegt eine Stabbohrung derselben Stufe im Weg und reichen beide Tiefen zusammen durch die Stufe, wird der Dübel entlang der Wange verschoben, sonst flacher gebohrt.
+- Wange: CNC, Bohraggregat waagerecht in die Auflagerkante (`Wange3d::Prog#drills`, Hilfsfläche je Bohrung über `Lauf.drill_face`, Seite 1 nach Kontur und Schrägen; bei `drill_wange = 'markieren'` nur Markierung). Funktioniert auch bei überlangen Wangen (Läufe A/B).
+- Stufe: von unten von Hand nach der Bohrliste in `…_Nacharbeit.txt` („Dübel Trittstufen“: je Stufe/Podest und Seite Abstand von der Vorderkante und vom Stufenende, Ø, Tiefe). Entscheidung „Bohrliste“ statt „Stufen umgedreht fräsen“ (Empfehlung, von Jürgen nicht anders entschieden).
+- CNC-Vorschau zeigt die Bohrungen in den Sattelwangen; Hinweis und Zusammenfassungszeile im CNC-Dialog.
+- Test neu: `test/sattel_duebel_test.rb` (alle Formen ohne Spindel × rechts/links × Geländer beidseitig/außen/keins × bohren/markieren: Dübel unter der Stufe und auf der Wangenmitte, Ansatz auf der Auflagerkante, Richtung ins Material, keine Kollision mit Stabbohrungen, TCN und Bohrliste).
 
 ## Version 2.18.0 – Halbgewendelt: Zwischenstück
 - **Innenwange am Zwischenstück stumpf** (`Stringers.match_edge`, aus `butt_joints`): Bei U-Treppen reicht die Unterkante der Wange des folgenden Laufs am Anfang bis zur Unterkante des Zwischenstücks (über die Wangendicke waagerecht, dann mit dessen Neigung bis zur eigenen Kante). Die Stirn des Zwischenstücks liegt so ganz an der Wange an; eine tiefer hängende Spitze wird abgeschnitten. Gilt für gerade und geschwungene Wangenform. Der Stoß Lauf 1 → Zwischenstück ist unverändert.

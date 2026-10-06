@@ -187,6 +187,11 @@ module JTools
         { key: 'sat_rest', label: 'Restbreite unter der Ausklinkung', type: 'number', default: 12.0, unit: 'cm', group: 'Tragkonstruktion', min: 4, step: 0.5, constr: ['wange'], side: 'sattel',
           help: 'Rechtwinklig gemessen vom inneren Eckpunkt der Ausklinkungen bis zur Wangenunterkante.' },
         { key: 'sat_inset', label: 'Stufenüberstand seitlich über aufgesattelter Wange', type: 'number', default: 3.0, unit: 'cm', group: 'Tragkonstruktion', min: 0, step: 0.5, constr: ['wange'], side: 'sattel' },
+        { key: 'sat_dowels', label: 'Dübel je Stufe (aufgesattelte Wange)', type: 'number', default: 2, unit: 'Stk', group: 'Tragkonstruktion', min: 0, step: 1, constr: ['wange'], side: 'sattel',
+          help: 'Je Auflager gleichmäßig verteilt (bei 2 auf ¼ und ¾ der Auflagerlänge), mittig in der Wangendicke. Bohrtiefe je Teil wie „Dübel: Bohrtiefe je Teil“ ' \
+                '(in der Stufe höchstens Stufendicke − 1 cm, Stabbohrungen werden umgangen). Wange: CNC mit dem Bohraggregat in die Auflagerkante; ' \
+                'Stufe: von unten von Hand nach der Bohrliste in …_Nacharbeit.txt. 0 = keine Dübel.' },
+        { key: 'sat_dowel_d', label: 'Dübel Ø (Stufe – aufgesattelte Wange)', type: 'number', default: 1.0, unit: 'cm', group: 'Tragkonstruktion', min: 0.4, step: 0.1, constr: ['wange'], side: 'sattel' },
         { key: 'holm_w', label: 'Holmbreite', type: 'number', default: 12.0, unit: 'cm', group: 'Tragkonstruktion', min: 4, step: 1, constr: ['holm'] },
         { key: 'holm_h', label: 'Holmhöhe (lotrecht)', type: 'number', default: 24.0, unit: 'cm', group: 'Tragkonstruktion', min: 8, step: 1, constr: ['holm'] },
         { key: 'slab_t', label: 'Laufplattendicke', type: 'number', default: 16.0, unit: 'cm', group: 'Tragkonstruktion', min: 8, step: 1, constr: ['massiv'] },
