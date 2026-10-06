@@ -1,18 +1,16 @@
-# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.9.0, 06.10.2026 – Branch `claude/gelaender-pfosten-e1r6fs`, PR #5 gegen `main`)
+# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.17.0, 06.10.2026 – `main`)
 
 ## Was es ist
 SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Export nach TCN (TpaCAD), angelehnt an Jürgens Plugin **dxf4tcn**.
 
-## Dateien in diesem Ordner (E:\sketchup-treppe)
-- `treppenbau_2.8.0.rbz` – **Version 2.8.0** (Branch `drachenstufe`: Drachenstufe außermittig, Schenkel ≥ 2 cm)
-- `treppenbau_2.7.1.rbz` – Version 2.7.1 (Stand `main`, enthält 2.7.0 + Commit „schräge wangen“); `treppenbau_2.7.0.rbz` = 2.7.0 vor diesem Commit, `treppenbau_2.6.0.rbz` = 2.6.0 (2.5.0, 2.4.0 und 2.3.0 nur noch in der Git-Historie; ab 2.3.0 Versionsnummer im Dateinamen; `_9` = 2.0.0, `_8` = 1.5.3, `_1` = 1.1.0 … `_4` = 1.4.0, `_5` = 1.5.0, `_6` = 1.5.1, `_7` = 1.5.2)
-- `src/` + `test/` – **Arbeitskopie** der Quellen (Stand 2.7.1, `main`), wird vom Entwickler-Loader direkt geladen
-- `jt_aa_treppenbau_dev.rb` – Entwickler-Loader (in den SketchUp-Plugins-Ordner kopieren, lädt aus `E:\sketchup-treppe\src`)
-- `treppenbau_quellen_tests_9.zip` – Quellcode + Tests Stand 2.0.0 (`_8` = 1.5.3, `_7` = 1.5.2, `_6` = 1.5.1, `_5` = 1.5.0, ohne Nummer = 1.4.0)
-- `_to_delete/` – Debug-Plots, kann gelöscht werden
-- `tcn_test/` – Testprogramme Seitenaggregat (A–D, `gen_tests.rb`, `check_tests.py`, README) und Beispiel-Export `E_beispiel_l_wendel/`
-- Referenz dxf4tcn: `E:\sketchup-dxf2tcn\dxf4tcn_1.rbz` (TCN-Format, Werkzeuge), Beispiel `Kirmes 26 Leuchtturm.tcn`
-- Verwandt: `E:\cvs2tcn` (csv2tcn, OpenCutList-Integration)
+## Repository und Dateien
+Gearbeitet wird nur im GitHub-Repo `jimmycd/sketchup-treppenbauer` (nicht mehr im lokalen Ordner `E:\sketchup-treppe`). Größere Änderungen auf eigenem Branch mit PR nach `main`; RBZ direkt auf `main`.
+- `treppenbau_<Version>.rbz` im Hauptordner – aktuell **`treppenbau_2.17.0.rbz`** (Stand `main`), ältere daneben (2.14.0, 2.12.0, 2.8.0, 2.7.x, 2.6.0). Bauen: `git archive origin/main src`, ohne `jt_aa_treppenbau_dev.rb`, im Ordner `src`: `zip -qrX treppenbau_<Version>.rbz jt_treppenbau.rb jt_treppenbau`.
+- `src/` + `test/` – Quellen und Testskripte (ohne SketchUp lauffähig).
+- `jt_aa_treppenbau_dev.rb` – Entwickler-Loader (lädt aus einem lokalen `src`-Ordner).
+- `Treppenbau-Plugin für SketchUp – Dokumentation.docx` – Anwender-Dokumentation (Stand 2.17.0); `Wie der Treppenbau rechnet – … .docx` – Erklärung der Wendelberechnung.
+- `tcn_test/` – Testprogramme Seitenaggregat (A–D, `gen_tests.rb`, `check_tests.py`, README) und Beispiel-Export `E_beispiel_l_wendel/` (alter Ablauf vor 2.7.1).
+- `_to_delete/` – Debug-Plots, kann gelöscht werden.
 
 ## Aufbau (src/jt_treppenbau.rb + src/jt_treppenbau/)
 | Datei | Inhalt |
@@ -82,7 +80,7 @@ Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`
 - **Stäbe in den Handlauf gebohrt:** Stäbe enden nicht mehr an der Handlauf-Unterkante (dort klaffte bei geneigtem Handlauf bergseitig ein Spalt), sondern gehen lotrecht um `bal_depth` (höchstens `rail_hh` − 1 cm) hinein. Stab-Hash hat `rdrill:`, Handlaufstück `drills:`; das Handlauf-Frästeil bekommt Bohrungen mit Winkel (`ang`) von der Unterkante aus – im TCN wie die Wangenbohrungen (Aggregat bzw. markieren, `drill_wange`).
 - **Handlauf an Eckpfosten:** endete bisher bei u ± `newel_s`/2 auf der Begrenzung; da die Achse versetzt ist, fehlten außen (eingestemmt) 2,5 cm bzw. ragte er innen in den Pfosten. Jetzt `Railing.face_u` + `leg_pt`: Ende genau an der Pfostenfläche (Achse des Schenkels ggf. über die Ecke verlängert).
 - **Aufgesattelte Wange:** Antritts- und Austrittspfosten stehen wie bei der eingestemmten Wange in der Treppe (`post_positions` mit `inside`), die aufgesattelte Wange beginnt/endet an der Pfostenfläche (`Stringers.sat_post_cut`), der Austrittspfosten reicht bis zur Wangenunterkante (`Railing.sattel_bot_end`). Seitlich bleibt die Geländerachse bei `rail_inset`.
-- **Stäbe im Stufenraster auch bei eingestemmter Wange:** je Stufe gleiche Felder, Stab in Feldmitte (wie auf den Stufen, ohne `bal_edge`) – bei gleich tiefen Stufen überall gleicher Abstand, jede Stufe gleich besetzt. Lücken > `bal_gap` neben Pfosten werden mit zusätzlichen Stäben gefüllt (auf Stufen nur, wo `bal_edge` passt, sonst Warnung wie bisher).
+- ~~Stäbe im Stufenraster~~ (ab 2.15.0 gleicher Stababstand je Seite) **auch bei eingestemmter Wange:** je Stufe gleiche Felder, Stab in Feldmitte (wie auf den Stufen, ohne `bal_edge`) – bei gleich tiefen Stufen überall gleicher Abstand, jede Stufe gleich besetzt. Lücken > `bal_gap` neben Pfosten werden mit zusätzlichen Stäben gefüllt (auf Stufen nur, wo `bal_edge` passt, sonst Warnung wie bisher).
 - **Zwischenpfosten:** neuer Parameter `rail_mid` „Zwischenpfosten ab Lauflänge“ (200 cm, 0 = keine). Feld zwischen zwei Pfosten im Grundriss länger → Pfosten in der Mitte (an der Stelle des mittleren Stabs), steht auf der Wangenoberkante bzw. Stufe, endet unter dem Handlauf (Handlauf läuft durch). `sd[:mids]`, role `:mitte`; 3D und Teileliste.
 - Tests: `railing_test` prüft zusätzlich Stäbe im Handlauf + Bohrung, Handlaufende an jeder Pfostenfläche, Zwischenpfosten, Pfosten/Wangenende bei aufgesattelter Wange; `bohrung_test` zählt die Handlaufbohrungen mit.
 - Offen: Stufen am Pfosten weiterhin nicht ausgeklinkt (betrifft jetzt auch die aufgesattelte Wange); Zwischenpfosten ohne Bohrung/Zapfen.
@@ -273,13 +271,15 @@ Inhalt = Commit `af8b154` „schräge wangen“ (Jürgen, per PR #2 in `main` ge
 - Unter den Stufen, um `sat_inset` eingerückt, Dicke `sat_t`; Sägezahn-Oberkante (Auflager, senkrechte Ausklinkung hinter Setzstufe/Unterschneidung); gerade Unterkante `sat_rest` rechtwinklig unter den inneren Ecken; an Podesten eigenes Brett. CNC-Export als Wangenteil `SA…/SI…` (ohne Nuten).
 
 ## Tests (ohne SketchUp, Ruby 3.x)
-In `test/` (vorher `mkdir out`, Locale UTF-8): `su_mock.rb`, `sattel_stufen_test.rb`, `sattel_build_test.rb`, `sattel_cnc_test.rb` (aufgesattelte Wangen 2.7.0), `switch_test.rb` (Umschalten Raum ↔ Parameter), `austritt_test.rb` (Austrittspodest), `build_test.rb` (alle Formen × Seiten-Kombinationen × frei/Raum mit schrägen Wänden, prüft geschlossene Körper), `plan_test.rb`, `fit_test.rb` (Raumfälle inkl. Winkel, Antritt fest, Treppenloch), `stringer_test.rb` (Überstand ≥ Vorgabe, konstante Breite, Mindestabstand unten), `kite_test.rb` (Drachenstufen), `cnc_test.rb`, `tcncheck.rb`, Plots `plotfit2.py`, `plotboards.rb/.py`, `dump3d.rb` + `render1.py`, Dialog-Screenshots `fmock2.rb` + `shotx.js` (Playwright).
-Paket bauen: im Ordner `src`: `zip -r treppenbau.rbz jt_treppenbau.rb jt_treppenbau`
+In `test/` (vorher `mkdir out`, Locale UTF-8, z. B. `LANG=C.UTF-8`): `su_mock.rb`; Geometrie `build_test`, `plan_test`, `fit_test`, `kite_test`/`kite_check`, `antritt_test`, `austritt_test`, `box_test`, `switch_test`; Wangen `stringer_test`, `sattel_test`, `sattel_stufen_test` (4 bekannte rote Fälle, siehe 2.9.0), `sattel_build_test`, `sattel_cnc_test`; Geländer `railing_test` (gleicher Stababstand, Stäbe zu nah an Stufenkanten werden gezählt), `pfosten_test`, `bohrung_test`; CNC `cnc_test`, `lauf_test` (Läufe A/B, Feld s3/s6, dauert mehrere Minuten), `fraesliste_test`, `tcncheck.rb`. Plots `plotfit2.py`, `plotboards.rb/.py`, `dumpjob.rb` + `plotjob.py`, `dump3d.rb` + `render1.py`; Dialog-Screenshots per Playwright-Mock (`cmock.rb`, `fmock2.rb`, `shotx.js`).
 
 ## Noch nicht in SketchUp/TpaCAD getestet
 Alles wurde nur außerhalb von SketchUp geprüft. Erster echter Test steht aus.
 
 ## Offene Punkte / Ideen
+- TpaCAD-Prüfung: Feldzuweisung und Bezug Lauf A/B (`s3`/`s6`, Fräsliste FIELD 3/6), Bohrmakros W#81 auf Hilfsflächen, Haltestege, Seitenaggregat
+- Geländer: Zwischenpfosten ohne Zapfen; Eckpfosten bei aufgesattelter Wange/freitragend stehen auf der Stufe (keine Tasche); Handlauf der Wendeltreppe (im Grundriss gebogen) wird nicht exportiert; Stäbe auf Stufen können wegen des gleichen Abstands näher als `bal_edge` an einer Stufenkante stehen (Warnung)
+- `sattel_stufen_test`: 4 rote Fälle (dreiläufig mit Podest, aufgesattelt, Setzstufen)
 - Geschwungene Wange: Rückmeldung zur Optik in Wendelbereichen (Krümmung der Unterkante an Innenecken kann stark sein)
 - Test in SketchUp + TpaCAD, Rückmeldung Fräser-Ø und Nutseite der Wangen
 - Gemischte Treppe (Podest + Wendelstufen) fehlt

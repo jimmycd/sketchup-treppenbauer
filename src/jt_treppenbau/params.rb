@@ -213,11 +213,12 @@ module JTools
         { key: 'bal_dia', label: 'Stab: Durchmesser', type: 'number', default: 2.5, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
           help: 'Runde Stäbe. 0 = keine Stäbe.' },
         { key: 'bal_gap', label: 'Lichter Stababstand (höchstens)', type: 'number', default: 12.0, unit: 'cm', group: 'Geländer', min: 4, step: 0.5,
-          help: 'DIN 18065: höchstens 12 cm. Die Stäbe stehen im Stufenraster: jede Stufe wird in gleiche Felder geteilt, der Stab steht in Feldmitte ' \
-                '(bei gleich tiefen Stufen überall gleicher Abstand). Lücken an den Pfosten werden aufgefüllt.' },
+          help: 'DIN 18065: höchstens 12 cm. Alle Stäbe einer Geländerseite haben denselben waagerechten Abstand; ' \
+                'je Feld steht die Reihe mittig zwischen den Pfosten.' },
         { key: 'bal_edge', label: 'Stab: Mindestabstand zum Stufenrand', type: 'number', default: 3.0, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
           help: 'Nur wo die Stäbe auf den Stufen stehen (aufgesattelte Wange, freitragend): Abstand Stabkante – Stufenvorderkante bzw. ' \
-                'Vorderkante der nächsten Stufe. Je Stufe wird die Tiefe in gleiche Felder geteilt, der Stab steht in Feldmitte.' },
+                'Vorderkante der nächsten Stufe. Die Stabreihe wird so verschoben, dass möglichst jeder Stab diesen Abstand hält ' \
+                '(gleicher Stababstand geht vor, Ausnahmen als Warnung).' },
         { key: 'bal_depth', label: 'Stab: Einlasstiefe (Bohrung)', type: 'number', default: 3.0, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
           help: 'Eingestemmte Wange: lotrechte Bohrung in die Wangenoberkante (schräg zur Wangenkante). Auf Stufen: Bohrung in die Trittstufe (höchstens Stufendicke − 1 cm). ' \
                 'Oben: lotrechte Bohrung in die Handlauf-Unterkante (höchstens Handlaufhöhe − 1 cm).' },
