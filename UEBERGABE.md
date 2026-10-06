@@ -36,6 +36,13 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
 
+## Version 2.16.0 – TCN: Maschinenbreite, Pfosten einzeln, Stäbe und gerade Handläufe ohne TCN
+- **Breite Y höchstens `mach_w`** (neu, 1300 mm; Rohplatte `plate_w` jetzt Standard 1300): `Cnc.table_w` = min(Rohplatte, Maschine) für Verschachtelung, Platten-TCN (`DH`), Rohling-Prüfung eigener Teile und aufgesattelter Wangen. Breitere Wangen-Seiten werden nicht exportiert (Teileliste „NICHT EXPORTIERT“).
+- **Geländerpfosten je eine TCN** (`OWN_BLANK` + `:post`, Datei `…_Gelaenderpfosten_G<n>.tcn`, eigener Rohling wie Handlauf; Taschen/Bohrungen weiter in `…_Pfosten_Bearbeitung.txt`). Dateinamen ohne Umlaute (`LongPart#file_kind`).
+- **Geländerstäbe ohne TCN** (`Part#no_tcn`): alle Stäbe (quadratisch und rund) nur in Teileliste („keine TCN – …“) und in `…_Nacharbeit.txt` (Querschnitt, Längen je Stab, Summe).
+- **Gerade Handläufe ohne TCN** (`str_form` gerade): Teileliste + Nacharbeit mit Länge, Querschnitt, Neigung und den Bohrungen (Abstand entlang der Unterkante ab unterem Ende, Winkel zur Unterkante). Geschwungene Handläufe weiter als TCN.
+- `…_Wangen_Nacharbeit.txt` heißt jetzt `…_Nacharbeit.txt`; `Result#manual` = nicht gefräste Teile.
+
 ## Version 2.15.0 – Gleicher Stababstand
 - **Ein Mittenabstand je Geländerseite** (`Railing.bars`): alle Stäbe einer Seite haben denselben waagerechten Abstand entlang der Achse im Grundriss, bei eingestemmten und aufgesattelten Wangen. Abstand = kleinste gleichmäßige Teilung aller Felder (Pfosten bzw. Zwischenpfosten); je Feld so viele Stäbe, dass der lichte Abstand zum Pfosten höchstens `bal_gap` ist, Reihe mittig. Das bisherige Stufenraster (Stäbe je Stufe) entfällt.
 - Aufgesattelt/frei: Reihe innerhalb des Spielraums verschoben und Abstand um bis zu 15 % verkleinert, damit möglichst kein Stab näher als `bal_edge` an einer Stufenkante steht; verbleibende Fälle als Warnung.

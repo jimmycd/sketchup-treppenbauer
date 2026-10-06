@@ -290,7 +290,7 @@ module JTools
         ops << { k: :mill, pts: loop_ + [loop_.first], z: -(ds + o['overcut'].to_f), tool: tool_outer,
                  comp: o['climb'] ? 1 : 2, cut: true, tab: true }
         faces = mark_h ? [] : hdr.map { |h| drill_face(h, ds, o['drill_clear'].to_f, o['hdrill_tool']) }
-        { l: l, w: w, t: ds, title: "#{part.label} (eingestemmt)", comments: ["'Treppenbau #{part.label}"],
+        { l: l, w: w, t: ds, title: part.kind == :stringer ? "#{part.label} (eingestemmt)" : part.label, comments: ["'Treppenbau #{part.label}"],
           ops: ops, faces: faces, outline: poly }
       end
 
