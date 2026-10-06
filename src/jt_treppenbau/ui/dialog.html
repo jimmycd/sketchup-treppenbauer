@@ -80,6 +80,7 @@
         <div class="legend">Grundriss · Draufsicht
           <i style="background:var(--tread)"></i>Stufe
           <i style="background:var(--landing)"></i>Podest
+          <i style="background:#b98a4e"></i>Wange
           <i style="background:#c0392b;height:2px;border:0;vertical-align:3px"></i>Gehlinie
         </div>
       </div>
@@ -323,8 +324,10 @@
     draw: function (plan) {
       var svg = $('svg');
       while (svg.firstChild) svg.removeChild(svg.firstChild);
+      var wangen = plan.wangen || [];
       var pts = [].concat(plan.outer, plan.inner);
       plan.treads.forEach(function (t) { pts = pts.concat(t.pts); });
+      wangen.forEach(function (w) { pts = pts.concat(w); }); // Gesamtmaße über alles inkl. Wangen
       var sxs = pts.map(function (p) { return p[0]; }), sys = pts.map(function (p) { return p[1]; });
       var sx0 = Math.min.apply(null, sxs), sx1 = Math.max.apply(null, sxs);
       var sy0 = Math.min.apply(null, sys), sy1 = Math.max.apply(null, sys);
@@ -362,6 +365,10 @@
         var c = T([0, 0]);
         el('circle', { cx: c[0], cy: c[1], r: plan.spiral.r_in, fill: '#777', stroke: '#444', 'stroke-width': S });
       }
+      // eingestemmte Wangen
+      wangen.forEach(function (w) {
+        el('polygon', { points: P(w), fill: '#b98a4e', stroke: '#3b2a14', 'stroke-width': 0.9 * S, 'stroke-linejoin': 'round' });
+      });
       // Begrenzungen
       el('polyline', { points: P(plan.outer), fill: 'none', stroke: '#3b2a14', 'stroke-width': 2 * S });
       if (plan.inner.length > 1) el('polyline', { points: P(plan.inner), fill: 'none', stroke: '#3b2a14', 'stroke-width': 2 * S });

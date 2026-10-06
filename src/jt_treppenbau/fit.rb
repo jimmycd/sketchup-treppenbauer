@@ -33,17 +33,25 @@ module JTools
         Params.side_kind(p, which, outer_side, spiral) == 'wange' ? p['str_t'].to_f : 0.0
       end
 
-      # Grundrisspunkte inkl. Wangen
-      def footprint_pts(plan, p)
-        pts = []
+      # Wangen im Grundriss als Streifen-Polygone (Linie + um die Wangendicke
+      # nach außen versetzte Linie), nur eingestemmte Wangen
+      def wange_strips(plan, p)
+        strips = []
         [[:outer, plan.outer_side], [:inner, -plan.outer_side]].each do |which, side|
           pl = plan.send(which).pts
-          pts.concat(pl)
           t = side_t(p, which, plan.outer_side, !plan.spiral.nil?)
           next unless t > 0 && pl.size >= 2
           mn = Geo.miter_normals(pl, side)
-          pl.each_with_index { |q, i| pts << Geo.add(q, Geo.mul(mn[i], t)) }
+          off = pl.each_with_index.map { |q, i| Geo.add(q, Geo.mul(mn[i], t)) }
+          strips << pl + off.reverse
         end
+        strips
+      end
+
+      # Grundrisspunkte inkl. Wangen
+      def footprint_pts(plan, p)
+        pts = plan.outer.pts + plan.inner.pts
+        wange_strips(plan, p).each { |s| pts.concat(s) }
         pts
       end
 
