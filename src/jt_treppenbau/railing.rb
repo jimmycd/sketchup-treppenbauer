@@ -6,6 +6,12 @@
 #     der Begrenzung (L: eine Ecke, U mit Treppenauge innen: zwei Ecken mit
 #     Querstück) bzw. bei geraden Zwischenpodesten an der Podestvorderkante.
 #   * Der Handlauf läuft von Pfosten zu Pfosten (stößt an die Pfosten).
+#     Querschnitt rechteckig: Breite = Wangendicke (eingestemmt str_t,
+#     aufgesattelt sat_t, sonst rail_d), Höhe rail_hh; Oberkante rail_h über
+#     den Stufenvorderkanten. Wangenform „gerade“: je Feld eine Gerade (die
+#     niedrigste über allen Stufenkanten), „geschwungen“: knickfreie Kurve
+#     durch die Stufenkanten (wie die Wange) – dann wird der Handlauf als
+#     Platte aus dem Vollen gefräst (Teil mit gekrümmtem Umriss).
 #   * Stäbe zwischen den Pfosten, lichter Abstand höchstens bal_gap:
 #       eingestemmte Wange – jeder Stab steht lotrecht auf der Wangenoberkante
 #         und ist um bal_depth eingelassen (lotrechte Bohrung, d. h. schräg zur
@@ -41,7 +47,10 @@ module JTools
 
       # Ergebnis (im Plan zwischengespeichert):
       #   { sides: [ { which:, side:, mount: :wange | :stufe, off:, posts: [...],
-      #                bars: [...], rails: [[[x, y, z], ...], ...] } ], warnings: [] }
+      #                bars: [...], rails: [...] } ], warnings: [] }
+      #   Handlauf (je Feld zwischen zwei Pfosten):
+      #     { ua:, ub:, w:, h:, curved:, us: [...], pts: [[x, y], ...] (Achse),
+      #       tops: [...], bots: [...] }
       #   Pfosten: { u:, pt:, tg:, s:, zbot:, ztop:, role: :antritt | :austritt | :ecke | :podest }
       #   Stab:    { u:, pt:, tg:, d:, zbot:, ztop:, tread: k | nil,
       #              drill: { u:, z:, depth:, d: } }   (Bohrung in Wange bzw. Stufe)
@@ -68,6 +77,13 @@ module JTools
         zs = (0...plan.nlines).map { |k| plan.nose_z(k) + p['rail_h'] }
         sd = { which: which, side: side, mount: mount, off: off, poly: poly, keys: keys, zs: zs,
                posts: [], bars: [], rails: [] }
+        sd[:rw] = case Params.side_kind(p, which, plan.outer_side, !plan.spiral.nil?)
+                  when 'wange' then p['str_t']
+                  when 'sattel' then p['sat_t']
+                  else p['rail_d']
+                  end
+        sd[:posts] = post_positions(plan, p, which, keys, mount == :wange)
+        sd[:spans] = spans(plan, p, sd)
         sd[:posts] = posts(plan, p, sd)
         sd[:bars] = bars(plan, p, sd, warnings)
         sd[:rails] = rails(plan, p, sd)
@@ -114,6 +130,36 @@ module JTools
           best = z if best.nil? || z > best
         end
         best || zs[-1]
+      end
+
+      # Handlauf-Oberkante je Feld zwischen zwei Pfosten (Lambda u -> z)
+      def spans(plan, p, sd)
+        curved = p['str_form'] == 'kurve'
+        sd[:posts].each_cons(2).map do |pa, pb|
+          ua = pa[:u] + p['newel_s'] / 2.0
+          ub = pb[:u] - p['newel_s'] / 2.0
+          pts = [[ua, rail_z(sd, ua)]]
+          sd[:keys].each_with_index { |k, i| pts << [k, sd[:zs][i]] if k > ua + 0.01 && k < ub - 0.01 }
+          pts << [ub, rail_z(sd, ub)]
+          # gleiche u (Innenecke): höchster Wert
+          pts = pts.group_by { |u, _| (u * 100).round }.map { |_, g| [g[0][0], g.map(&:last).max] }.sort_by(&:first)
+          f = if pts.size < 2
+                z0 = pts[0][1]
+                ->(_u) { z0 }
+              elsif curved
+                Stringers.pchip(pts)
+              else
+                c, sl = Stringers.top_line(pts)
+                ->(u) { c + sl * u }
+              end
+          { ua: ua, ub: ub, f: f, pts: pts }
+        end
+      end
+
+      # Oberkante Handlauf an u (Feld, in dem u liegt; sonst Stufenkanten)
+      def rail_top(sd, u)
+        sp = (sd[:spans] || []).find { |x| u >= x[:ua] - 1e-6 && u <= x[:ub] + 1e-6 }
+        sp ? sp[:f].(u) : rail_z(sd, u)
       end
 
       # Ecken (Parameter) der Begrenzung mit Richtungsänderung > CORNER_MIN
@@ -185,11 +231,10 @@ module JTools
 
       def posts(plan, p, sd)
         s = p['newel_s']
-        r = p['rail_d'] / 2.0
         keys = sd[:keys]; poly = sd[:poly]
         wange = sd[:mount] == :wange
-        list = post_positions(plan, p, sd[:which], keys, wange)
-        list.each do |q|
+        list = sd[:posts]
+        list.each_with_index do |q, i|
           u = q[:u]
           q[:s] = s
           q[:pt] = axis_pt(sd, u)
@@ -198,7 +243,11 @@ module JTools
             # an der Ecke nach dem ankommenden Lauf ausgerichtet
             q[:tg] = poly.tangent(u - 0.01)
           end
-          q[:ztop] = rail_z(sd, u) + r + POST_CAP
+          # über die Oberkante der anschließenden Handläufe
+          zr = []
+          zr << sd[:spans][i - 1][:f].(sd[:spans][i - 1][:ub]) if i > 0 && sd[:spans][i - 1]
+          zr << sd[:spans][i][:f].(sd[:spans][i][:ua]) if sd[:spans][i]
+          q[:ztop] = (zr.max || rail_z(sd, u)) + POST_CAP
           q[:zbot] = if wange
                        q[:role] == :antritt ? 0.0 : [(wange_bot(plan, p, sd[:which], u) || 0.0), 0.0].max
                      elsif q[:role] == :antritt
@@ -217,7 +266,6 @@ module JTools
       def bars(plan, p, sd, warnings)
         d = p['bal_d']; gap = p['bal_gap']
         return [] if d <= 0 || gap <= 0
-        r = p['rail_d'] / 2.0
         posts = sd[:posts]
         out = []
         maxgap = 0.0
@@ -234,7 +282,7 @@ module JTools
           edges = [ua] + us.flat_map { |u, _k| [u - d / 2.0, u + d / 2.0] } + [ub]
           edges.each_slice(2) { |a, b| maxgap = [maxgap, b - a].max if b }
           us.each do |u, k|
-            bar = { u: u, pt: axis_pt(sd, u), tg: sd[:poly].tangent(u), d: d, tread: k, ztop: rail_z(sd, u) - r }
+            bar = { u: u, pt: axis_pt(sd, u), tg: sd[:poly].tangent(u), d: d, tread: k, ztop: rail_top(sd, u) - p['rail_hh'] }
             if sd[:mount] == :wange
               zt = wange_top(plan, p, sd[:which], u) || (rail_z(sd, u) - p['rail_h'] + p['str_over'])
               bar[:zbot] = zt - p['bal_depth']
@@ -312,22 +360,26 @@ module JTools
 
       # --- Handlauf ---------------------------------------------------------
 
-      # Handlaufstücke von Pfosten zu Pfosten (3D-Polylinien auf der Achse)
+      # Handlaufstücke von Pfosten zu Pfosten
       def rails(plan, p, sd)
-        out = []
-        sd[:posts].each_cons(2) do |pa, pb|
-          ua = pa[:u] + pa[:s] / 2.0
-          ub = pb[:u] - pb[:s] / 2.0
-          next if ub - ua < 1.0
+        curved = p['str_form'] == 'kurve'
+        h = p['rail_hh']
+        sd[:spans].map do |sp|
+          ua = sp[:ua]; ub = sp[:ub]
+          next nil if ub - ua < 1.0
           us = [ua]
           sd[:poly].cum.each { |c| us << c if c > ua + 0.01 && c < ub - 0.01 }
           sd[:keys].each { |c| us << c if c > ua + 0.01 && c < ub - 0.01 }
+          if curved
+            n = [((ub - ua) / 5.0).ceil, 2].max
+            (1...n).each { |i| us << ua + (ub - ua) * i / n }
+          end
           us << ub
           us = us.sort.uniq { |u| (u * 100).round }
-          path = us.map { |u| q = axis_pt(sd, u); [q[0], q[1], rail_z(sd, u)] }
-          out << path
-        end
-        out
+          tops = us.map { |u| sp[:f].(u) }
+          { ua: ua, ub: ub, w: sd[:rw], h: h, curved: curved, us: us,
+            pts: us.map { |u| axis_pt(sd, u) }, tops: tops, bots: tops.map { |z| z - h } }
+        end.compact
       end
     end
   end

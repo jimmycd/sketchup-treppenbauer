@@ -350,24 +350,37 @@ module JTools
         res
       end
 
+      # Handlauf je Feld als Platte (Dicke = Handlaufbreite), Umriss in der
+      # Seitenansicht abgewickelt: gerade = Parallelogramm, geschwungen = aus
+      # dem Vollen gefräster Bogen. Im Grundriss gebogene Stücke (Wendeltreppe)
+      # werden nicht exportiert.
       def rails(plan, p)
         res = []
         skipped = 0
-        rd = p['rail_d']
         Railing.compute(plan, p)[:sides].each do |sd|
-          sd[:rails].each do |path|
-            straight_runs(path).each do |a, b|
-              ln = Math.sqrt((b[0] - a[0])**2 + (b[1] - a[1])**2 + (b[2] - a[2])**2)
-              if ln < 25.0
-                skipped += 1
-                next
-              end
-              res << Part.new(:rail, "H#{res.size + 1}", rd * MM, rect(ln * MM, rd * MM), [], 0.0, 'Handlauf (gerades Stück)')
+          sd[:rails].each do |rl|
+            pts = rl[:pts]
+            dir = Geo.norm(Geo.sub(pts[-1], pts[0]))
+            bent = pts.any? { |q| Geo.cross(dir, Geo.sub(q, pts[0])).abs > 0.5 }
+            if bent || rl[:ub] - rl[:ua] < 10.0
+              skipped += 1
+              next
             end
+            xs = pts.map { |q| Geo.dot(Geo.sub(q, pts[0]), dir) }
+            top = xs.each_with_index.map { |x, i| [x * MM, rl[:tops][i] * MM] }
+            bot = xs.each_with_index.map { |x, i| [x * MM, rl[:bots][i] * MM] }.reverse
+            poly = Geo.clean_ring(top + bot, 0.05)
+            # Faser entlang der Sehne der Oberkante
+            axis = Geo.sub(top[-1], top[0])
+            rot, = rotation_for(axis)
+            pp, = transform_all(poly, [], rot)
+            info = rl[:curved] ? 'Handlauf geschwungen (aus dem Vollen gefräst)' : 'Handlauf'
+            res << Part.new(:rail, "H#{res.size + 1}", rl[:w] * MM, pp, [], 0.0,
+                            "#{info} #{sd[:which] == :outer ? 'außen' : 'innen'}")
           end
         end
         w = []
-        w << "#{skipped} gebogene bzw. sehr kurze Handlaufstücke werden nicht exportiert." if skipped > 0
+        w << "#{skipped} im Grundriss gebogene bzw. sehr kurze Handlaufstücke werden nicht exportiert." if skipped > 0
         [res, w]
       end
 

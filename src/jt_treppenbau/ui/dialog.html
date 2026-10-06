@@ -207,7 +207,7 @@
       if (f.constr && f.constr.indexOf(this.values.construction) < 0) return false;
       if (f.key === 'riser_t' && !this.values.risers) return false;
       if (f.key === 'str_h' && this.values.str_form === 'kurve') return false;
-      if (/^(rail_h|rail_d|newel_s|bal_d|bal_gap|bal_edge|bal_depth|rail_inset)$/.test(f.key) && this.values.rail === 'keins') return false;
+      if (/^(rail_h|rail_hh|rail_d|newel_s|bal_d|bal_gap|bal_edge|bal_depth|rail_inset)$/.test(f.key) && this.values.rail === 'keins') return false;
       if (f.key === 'floor_t' && !this.values.show_floor) return false;
       if (f.fitonly && this.values.fit_mode !== 'raum') return false;
       if (f.freeonly && this.values.fit_mode === 'raum') return false;

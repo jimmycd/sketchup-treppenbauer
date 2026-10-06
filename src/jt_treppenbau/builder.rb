@@ -287,12 +287,11 @@ module JTools
       def build_rails(grp, plan, p)
         rr = Railing.compute(plan, p)
         plan.warnings.concat(rr[:warnings].reject { |w| plan.warnings.include?(w) })
-        r = p['rail_d'] / 2.0
         m = mat(:holz)
         rr[:sides].each do |sd|
           nm = sd[:which] == :outer ? 'außen' : 'innen'
-          sd[:rails].each do |path|
-            g = tube(grp.entities, path, r, 12, m)
+          sd[:rails].each do |rl|
+            g = band(grp.entities, rl[:pts], rl[:tops], rl[:bots], sd[:side], -rl[:w] / 2.0, rl[:w] / 2.0, m)
             g.name = "Handlauf #{nm}" if g
           end
           sd[:posts].each do |q|

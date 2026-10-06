@@ -42,7 +42,8 @@ Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`
   - eingestemmte Wange: Stäbe lotrecht in die Wangenoberkante eingelassen (`bal_depth`), Bohrungen am Wangenteil (`Part#drills`, Winkel in der Teilebene = schräg zur Kante);
   - aufgesattelt/frei/Holm/Massiv: Stäbe auf den Stufen, je Stufe gleiche Felder, Stab in Feldmitte, Mindestabstand `bal_edge` zu beiden Stufenkanten (Vorrang vor `bal_gap`, sonst Warnung); Bohrungen an den Trittstufen.
 - **Pfosten als Zwischenstücke** (`Stringers.post_joints`): auf Geländerseiten enden die eingestemmten Wangen rechtwinklig an den Pfostenflächen; Lage aus `Railing.post_positions` (gemeinsame Quelle). Ecken ohne Pfosten bleiben stumpf gestoßen.
-- Neue Parameter: `newel_s` (9 cm), `bal_d` (2,5 cm), `bal_gap` (12 cm), `bal_edge` (3 cm), `bal_depth` (3 cm); `post_every`/`post_s` entfallen.
+- **Handlauf** rechteckig von Pfosten zu Pfosten: Breite = Wangendicke (`str_t` bzw. `sat_t`, ohne Wange `rail_d`), Höhe `rail_hh` (8 cm), Oberkante `rail_h` über den Stufenkanten. Wangenform „gerade“: je Feld die niedrigste Gerade über allen Stufenkanten; „geschwungen“: knickfreie Kurve (pchip) – CNC-Teil ist dann eine aus dem Vollen gefräste Platte mit gebogenem Umriss (Dicke = Handlaufbreite). Im Grundriss gebogene Handläufe (Wendeltreppe) werden nicht exportiert.
+- Neue Parameter: `rail_hh` (8 cm), `newel_s` (9 cm), `bal_d` (2,5 cm), `bal_gap` (12 cm), `bal_edge` (3 cm), `bal_depth` (3 cm); `post_every`/`post_s` entfallen.
 - Tests: `test/railing_test.rb` (neu), `stringer_test`/`sattel_*` auf stumpfe Stöße umgestellt.
 - Offen: Bohrungen noch nicht im TCN-Export/Plattenvorschau; Stufen am Pfosten nicht ausgeklinkt; U mit Treppenauge innen zwei Eckpfosten; aufgesattelte Wange, dreiläufig mit Podest und Setzstufen: am inneren U-Stoß ragt das durchlaufende Podestbrett in die letzte Stufe des Querlaufs (`sattel_stufen_test`, 4 Fälle).
 

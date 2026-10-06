@@ -82,6 +82,19 @@ Params::ALL.each do |v|
         end
         errs << "#{sd[:which]}: Stab über Handlauf" if sd[:bars].any? { |b| b[:ztop] <= b[:zbot] }
         errs << "#{sd[:which]}: kein Handlauf" if sd[:rails].empty?
+        # Handlauf: Oberkante nie unter Handlaufhöhe über den Stufenkanten,
+        # Breite = Wangendicke, Stäbe enden an der Unterkante
+        sd[:rails].each do |rl|
+          sd[:keys].each_with_index do |k, i|
+            next unless k > rl[:ua] + 0.01 && k < rl[:ub] - 0.01
+            zt = Railing.rail_top(sd, k)
+            errs << format('%s: Handlauf %.2f unter Sollhöhe', sd[:which], sd[:zs][i] - zt) if zt < sd[:zs][i] - 1e-3
+          end
+          errs << "#{sd[:which]}: Handlaufbreite" if sd[:mount] == :wange && (rl[:w] - p['str_t']).abs > 1e-6
+        end
+        sd[:bars].each do |b|
+          errs << "#{sd[:which]}: Stab nicht am Handlauf" if (b[:ztop] - (Railing.rail_top(sd, b[:u]) - p['rail_hh'])).abs > 1e-6
+        end
       end
       tag = "#{v} #{sl}/#{sr} #{dir}"
       info = rr[:sides].map { |sd| "#{sd[:which]}(#{sd[:mount]}): #{sd[:posts].size} Pf, #{sd[:bars].size} St" }.join('; ')

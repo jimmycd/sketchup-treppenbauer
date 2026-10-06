@@ -194,8 +194,11 @@ module JTools
         # --- Geländer --------------------------------------------------------
         { key: 'rail', label: 'Geländer / Handlauf', type: 'select', default: 'aussen', group: 'Geländer',
           options: [['keins', 'kein Geländer'], ['aussen', 'außen'], ['innen', 'innen'], ['beide', 'beidseitig']] },
-        { key: 'rail_h', label: 'Handlaufhöhe (über Stufenvorderkante)', type: 'number', default: 90.0, unit: 'cm', group: 'Geländer', min: 60, step: 1 },
-        { key: 'rail_d', label: 'Handlaufdurchmesser', type: 'number', default: 4.5, unit: 'cm', group: 'Geländer', min: 2, step: 0.5 },
+        { key: 'rail_h', label: 'Handlaufhöhe (Oberkante über Stufenvorderkante)', type: 'number', default: 90.0, unit: 'cm', group: 'Geländer', min: 60, step: 1 },
+        { key: 'rail_hh', label: 'Handlauf: Querschnittshöhe', type: 'number', default: 8.0, unit: 'cm', group: 'Geländer', min: 2, step: 0.5,
+          help: 'Rechteckiger Handlauf von Pfosten zu Pfosten. Breite = Wangendicke (eingestemmte bzw. aufgesattelte Wange). ' \
+                'Bei geschwungener Wangenform verläuft auch der Handlauf geschwungen und wird als Platte aus dem Vollen gefräst.' },
+        { key: 'rail_d', label: 'Handlaufbreite (Seiten ohne Wange)', type: 'number', default: 4.5, unit: 'cm', group: 'Geländer', min: 2, step: 0.5 },
         { key: 'newel_s', label: 'Pfostenquerschnitt (Antritt, Austritt, Laufwechsel)', type: 'number', default: 9.0, unit: 'cm', group: 'Geländer', min: 2, step: 0.5,
           help: 'Pfosten stehen am Antritt, am Austritt und an jedem Laufwechsel (Ecke bzw. Zwischenpodest). Der Handlauf läuft von Pfosten zu Pfosten.' },
         { key: 'bal_d', label: 'Stabquerschnitt', type: 'number', default: 2.5, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
