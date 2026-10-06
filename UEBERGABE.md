@@ -5,7 +5,7 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 
 ## Repository und Dateien
 Gearbeitet wird nur im GitHub-Repo `jimmycd/sketchup-treppenbauer` (nicht mehr im lokalen Ordner `E:\sketchup-treppe`). Größere Änderungen auf eigenem Branch mit PR nach `main`; RBZ direkt auf `main`.
-- `treppenbau_<Version>.rbz` im Hauptordner – aktuell **`treppenbau_2.17.0.rbz`** (Stand `main`), ältere daneben (2.14.0, 2.12.0, 2.8.0, 2.7.x, 2.6.0). Bauen: `git archive origin/main src`, ohne `jt_aa_treppenbau_dev.rb`, im Ordner `src`: `zip -qrX treppenbau_<Version>.rbz jt_treppenbau.rb jt_treppenbau`.
+- `treppenbau_<Version>.rbz` im Hauptordner – aktuell **`treppenbau_2.19.0.rbz`** (Stand `main`), ältere daneben (2.17.0, 2.14.0, 2.12.0, 2.8.0, 2.7.x, 2.6.0). Bauen: `git archive origin/main src`, ohne `jt_aa_treppenbau_dev.rb`, im Ordner `src`: `zip -qrX treppenbau_<Version>.rbz jt_treppenbau.rb jt_treppenbau`.
 - `src/` + `test/` – Quellen und Testskripte (ohne SketchUp lauffähig).
 - `jt_aa_treppenbau_dev.rb` – Entwickler-Loader (lädt aus einem lokalen `src`-Ordner).
 - `Treppenbau-Plugin für SketchUp – Dokumentation.docx` – Anwender-Dokumentation (Stand 2.17.0); `Wie der Treppenbau rechnet – … .docx` – Erklärung der Wendelberechnung.
