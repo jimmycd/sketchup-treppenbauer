@@ -91,11 +91,14 @@ cases = 0
         end
         # je Stab genau eine Bohrung unten (Stufe bzw. Wange) und eine oben
         # (Handlauf), sofern ein Teil existiert
+        nb += res.manual.sum { |pt| (pt.drills || []).count { |h| !h[:what] } }
         want = bars.count { |b| b[:drill] && b[:ztop] - b[:zbot] >= 2 } + bars.count { |b| b[:rdrill] && b[:ztop] - b[:zbot] >= 2 }
         errs << "Bohrungen #{nb}, Stäbe mit Bohrung #{want}" if nb > want || nb < want * 0.9
-        round_w = res.warnings.any? { |w| w.start_with?('Runde Geländerstäbe') }
-        errs << 'Hinweis runde Stäbe fehlt' if shape == 'rund' && !round_w
-        errs << 'runde Stäbe als Plattenteil' if shape == 'rund' && res.parts.any? { |pt| pt.kind == :bar }
+        # Stäbe und gerade Handläufe: keine TCN, nur Teileliste/Nacharbeit
+        errs << 'Hinweis Stäbe fehlt' unless res.warnings.any? { |w| w.start_with?('Geländerstäbe werden nicht gefräst') }
+        tcn_parts = res.sheets.flat_map { |sh| sh.placements.map(&:part) } + res.longs.map(&:part)
+        errs << 'Stab als TCN-Teil' if tcn_parts.any? { |pt| pt.kind == :bar }
+        errs << 'gerader Handlauf als TCN-Teil' if tcn_parts.any? { |pt| pt.kind == :rail && pt.info !~ /geschwungen/ }
         unless errs.empty?
           fails += 1
           puts "#{v} #{sl}/#{sr} #{shape} #{mode}: #{errs.uniq.first(4).join('; ')}"

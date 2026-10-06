@@ -20,7 +20,7 @@ module JTools
 
       DEFAULTS = {
         'plate_l'     => 2800.0,  # Rohplatte Länge (mm, X = Faserrichtung)
-        'plate_w'     => 2070.0,  # Rohplatte Breite (mm)
+        'plate_w'     => 1300.0,  # Rohplatte Breite (mm, höchstens Maschinenbreite mach_w)
         'margin'      => 10.0,    # Randabstand (mm)
         'tool_outer'  => 0,       # Fräser Außenkonturen (0 = automatisch)
         'tool_d'      => 18.27,   # Fräserdurchmesser (mm, nur bei expliziter Auswahl)
@@ -60,20 +60,24 @@ module JTools
         # überlange Wangen: zwei Läufe, dazwischen 180° drehen (gleicher X-Anschlag)
         'long_mode'   => 'drehen', # 'drehen' oder 'aus' (dann nur Warnung wie bisher)
         'mach_l'      => 3200.0,  # Verfahrweg X = größte TCN-Länge (mm)
+        'mach_w'      => 1300.0,  # Maschinenbreite Y = größte TCN-Breite (mm)
         'long_overlap' => 10.0,   # Außenkontur: Überlauf über die Teilung je Lauf (mm)
         'tab_n'       => 3,       # Haltestege je Konturstück in Lauf A (0 = keine)
         'tab_w'       => 20.0,    # Breite Haltesteg (mm)
         'tab_h'       => 4.0      # Höhe Haltesteg (mm)
       }.freeze
 
-      Result = Struct.new(:sheets, :unplaced, :warnings, :parts, :boards, :longs)
+      Result = Struct.new(:sheets, :unplaced, :warnings, :parts, :boards, :longs, :manual)
       # Teile mit eigenem Rohling statt Verschachtelung (eingestemmte Wangen,
-      # Handläufe): eigenes Programm, überlang in zwei Läufen
-      OWN_BLANK = %i[stringer rail].freeze
+      # Handläufe, Geländerpfosten): je Teil ein eigenes Programm, überlang in
+      # zwei Läufen
+      OWN_BLANK = %i[stringer rail post].freeze
       LongPart = Struct.new(:part, :prog, :split, :notes) do
         def label; part.label; end
         def blank; [prog[:l], prog[:w]]; end
         def kind_name; Parts::KIND_NAMES[part.kind] || part.kind.to_s; end
+        # Dateiname ohne Umlaute
+        def file_kind; kind_name.gsub('ä', 'ae').gsub('ö', 'oe').gsub('ü', 'ue').gsub('ß', 'ss').gsub(/[^A-Za-z0-9]+/, '_'); end
       end
       SheetInfo = Struct.new(:thickness, :index, :count, :placements, :used_len, :util, :tool)
 
@@ -114,6 +118,12 @@ module JTools
         end
       end
 
+      # nutzbare Breite Y: Rohplatte, höchstens Maschinenbreite (keine TCN breiter)
+      def table_w(o)
+        mw = o['mach_w'].to_f
+        mw > 0 ? [o['plate_w'].to_f, mw].min : o['plate_w'].to_f
+      end
+
       def gap(o, d = o['tool_d'])
         o['gap'].to_f > 0 ? o['gap'].to_f : d.to_f + 4.0
       end
@@ -131,6 +141,14 @@ module JTools
                                         stringers: o['p_stringers'], posts: o['p_posts'],
                                         rail: o['p_rail'], einstand: o['einstand'], pocket_d: o['pocket_d'])
         warnings = warnings.dup
+        if o['mach_w'].to_f > 0 && o['plate_w'].to_f > o['mach_w'].to_f + 1e-6
+          warnings << "Rohplatte #{o['plate_w'].round} mm breiter als die Maschine (Y höchstens #{o['mach_w'].round} mm): " \
+                      "verschachtelt wird auf #{table_w(o).round} mm Breite."
+        end
+        # nicht gefräste Teile (Geländerstäbe, gerade Handläufe): nur Teileliste und Nacharbeit
+        manual, parts = parts.partition(&:no_tcn)
+        nrl = manual.count { |pt| pt.kind == :rail }
+        warnings << "#{nrl} gerade Handlaufstücke werden klassisch gefertigt (keine TCN) – Maße und Bohrungen siehe Nacharbeit." if nrl > 0
         # aufgesattelte Wangen mit 3D-Daten: eigenes Programm je Wange
         boards = []
         if o['p_stringers'] && params['construction'] == 'wange'
@@ -140,15 +158,16 @@ module JTools
           boards.each { |b| warnings << b.summary if b.summary }
           if o['long_mode'] == 'drehen'
             boards.each { |b| split_board(b, o, warnings) }
-            long = boards.select { |b| b.raw_blank[1] > o['plate_w'] || b.splits.values.any? { |sp| sp[:runs].nil? } }
+            long = boards.select { |b| b.raw_blank[1] > table_w(o) || b.splits.values.any? { |sp| sp[:runs].nil? } }
           else
-            long = boards.select { |b| b.raw_blank[0] > o['plate_l'] || b.raw_blank[1] > o['plate_w'] }
+            long = boards.select { |b| b.raw_blank[0] > o['plate_l'] || b.raw_blank[1] > table_w(o) }
           end
           unless long.empty?
-            warnings << "Wangen-Rohling größer als Rohplatte/Tisch (#{o['plate_l'].round} × #{o['plate_w'].round} mm): " +
-                        long.map { |b| "#{b.label} (#{b.raw_blank.map(&:round).join('×')} mm)" }.join(', ')
+            warnings << "Wangen-Rohling größer als Rohplatte/Tisch (#{o['plate_l'].round} × #{table_w(o).round} mm): " +
+                        long.map { |b| "#{b.label} (#{b.raw_blank.map(&:round).join('×')} mm)" }.join(', ') +
+                        (long.any? { |b| b.raw_blank[1] > table_w(o) + 1e-6 } ? ' – breiter als die Maschine: keine TCN' : '')
           end
-          warnings << 'Einzelheiten zur Nacharbeit: Datei …_Wangen_Nacharbeit.txt beim Export.' if boards.any? { |b| !b.notes.empty? }
+          warnings << 'Einzelheiten zur Nacharbeit: Datei …_Nacharbeit.txt beim Export.' if boards.any? { |b| !b.notes.empty? }
           o['sat_mode'] = 'fraesen' unless %w[fraesen markieren].include?(o['sat_mode'])
         end
         o['drill_wange'] = 'bohren' unless %w[bohren markieren].include?(o['drill_wange'])
@@ -187,7 +206,7 @@ module JTools
           w = depth_warning("Platten #{fmt(th)} mm", tl)
           warnings << w if w
           g = gap(o, tl[:d])
-          nester = Nester.new(length: o['plate_l'], width: o['plate_w'], margin: o['margin'],
+          nester = Nester.new(length: o['plate_l'], width: table_w(o), margin: o['margin'],
                               gap: g, grid: o['grid'], grain: o['grain'])
           unless nester.usable?
             unplaced.concat(list)
@@ -197,7 +216,7 @@ module JTools
           unplaced.concat(nester.unplaced)
           nester.plates.each_with_index do |sh, i|
             area = sh.placements.map { |pl| pl.part.area }.sum
-            util = area / (o['plate_l'] * o['plate_w'])
+            util = area / (o['plate_l'] * table_w(o))
             sheets << SheetInfo.new(th, i + 1, nester.plates.size, sh.placements, sh.maxx, util, tl)
           end
         end
@@ -205,7 +224,7 @@ module JTools
           warnings << "#{unplaced.size} Teil(e) passen nicht auf die Rohplatte: " +
                       unplaced.map { |p| "#{p.label} (#{p.size.map { |v| v.round }.join('×')} mm)" }.first(8).join(', ')
         end
-        Result.new(sheets, unplaced, warnings, parts, boards, longs)
+        Result.new(sheets, unplaced, warnings, parts + manual, boards, longs, manual)
       end
 
       # Optionen für Lauf.from_job (wie Tcn.write_job)
@@ -234,8 +253,8 @@ module JTools
         tl = outer_tool(o, pt.thickness)
         prog = Lauf.from_part(pt, o, tl[:nr])
         name = Parts::KIND_NAMES[pt.kind] || pt.kind.to_s
-        if prog[:w] > o['plate_w'] + 1e-6
-          warnings << "#{name} #{pt.label}: Rohling #{prog[:w].round} mm breiter als der Tisch (#{o['plate_w'].round} mm)."
+        if prog[:w] > table_w(o) + 1e-6
+          warnings << "#{name} #{pt.label}: Rohling #{prog[:w].round} mm breiter als der Tisch (#{table_w(o).round} mm)."
           return nil
         end
         if o['long_mode'] == 'drehen'
@@ -250,7 +269,7 @@ module JTools
         if sp[:runs].size > 1
           notes.concat(long_notes(pt.label, [prog[:l], prog[:w]], sp[:x_t], o, false))
           warnings << "#{name} #{pt.label} überlang (Rohling #{prog[:l].round} × #{prog[:w].round} mm): 2 Läufe, " \
-                      'dazwischen drehen – Einrichtung siehe …_Wangen_Nacharbeit.txt.'
+                      'dazwischen drehen – Einrichtung siehe …_Nacharbeit.txt.'
         end
         LongPart.new(pt, prog, sp, notes)
       end
@@ -286,7 +305,7 @@ module JTools
         res.sheets.each do |sh|
           path = File.join(dir, sheet_name(base, sh) + '.tcn')
           Tcn.write(path, sh.placements,
-                    length: o['plate_l'], width: o['plate_w'], thickness: sh.thickness,
+                    length: o['plate_l'], width: table_w(o), thickness: sh.thickness,
                     tool_outer: sh.tool[:nr], overcut: o['overcut'], climb: o['climb'],
                     deco_tool: o['deco_tool'], deco_depth: o['deco_depth'],
                     engrave: o['engrave'], text_h: o['text_h'],
@@ -298,6 +317,11 @@ module JTools
         bfiles = {}
         (res.boards || []).each do |jb|
           jb.programs.each do |pg|
+            # nie breiter als die Maschine (Y)
+            if (pg.side == 1 ? jb.raw_blank[1] : jb.blank[1]) > table_w(o) + 1e-6
+              (bfiles[jb.label] ||= []) << "Seite #{pg.side} NICHT EXPORTIERT (breiter als #{table_w(o).round} mm)"
+              next
+            end
             sp = jb.splits && jb.splits[pg.side]
             if sp && sp[:runs] && sp[:runs].size > 1
               sp[:runs].each do |run|
@@ -317,19 +341,27 @@ module JTools
         (res.longs || []).each do |lp|
           runs = lp.split[:runs]
           runs.each do |run|
-            path = File.join(dir, "#{base}_#{lp.kind_name}_#{lp.label}#{runs.size > 1 ? "_#{run.name}" : ''}.tcn")
+            path = File.join(dir, "#{base}_#{lp.file_kind}_#{lp.label}#{runs.size > 1 ? "_#{run.name}" : ''}.tcn")
             Tcn.write_prog(path, runs.size > 1 ? Lauf.labeled(run) : run.prog)
             files << path
             (bfiles[lp.label] ||= []) << File.basename(path)
           end
         end
         notes = (res.boards || []).flat_map(&:notes) + (res.longs || []).flat_map(&:notes)
-        unless notes.empty?
-          txt = File.join(dir, "#{base}_Wangen_Nacharbeit.txt")
+        man = manual_notes(res.manual || [])
+        unless notes.empty? && man.empty?
+          txt = File.join(dir, "#{base}_Nacharbeit.txt")
           n_w = (res.boards || []).size + (res.longs || []).size
+          lines = []
+          unless notes.empty?
+            lines << ((res.longs || []).empty? ? "Aufgesattelte Wangen – Hinweise (#{res.boards.size} Wangen)" : "Wangen, Handläufe und Pfosten – Hinweise (#{n_w} Teile mit eigenem Programm)")
+            lines << ''
+            lines.concat(notes)
+            lines << ''
+          end
+          lines.concat(man)
           File.open(txt, 'wb') do |io|
-            head = (res.longs || []).empty? ? "Aufgesattelte Wangen – Hinweise (#{res.boards.size} Wangen)" : "Wangen und Handläufe – Hinweise (#{n_w} Teile mit eigenem Programm)"
-            io.write(([head, ''] + notes).join("\r\n").encode('Windows-1252', invalid: :replace, undef: :replace, replace: '_') + "\r\n")
+            io.write(lines.join("\r\n").encode('Windows-1252', invalid: :replace, undef: :replace, replace: '_') + "\r\n")
           end
           files << txt
         end
@@ -362,6 +394,10 @@ module JTools
             rows << [p.id, p.label, p.info + ' (eigener Rohling)', fmt(p.thickness), fmt(l), fmt(w),
                      fmt(l * w / 1e6, 3), bfiles.fetch(p.label, []).join(' + '), '', '', '']
           end
+          (res.manual || []).each do |p|
+            l, w = p.size
+            rows << [p.id, p.label, p.info, fmt(p.thickness), fmt(l), fmt(w), fmt(p.area / 1e6, 3), "keine TCN – #{p.no_tcn}", '', '', '']
+          end
           res.unplaced.each do |p|
             l, w = p.size
             rows << [p.id, p.label, p.info, fmt(p.thickness), fmt(l), fmt(w), fmt(p.area / 1e6, 3), 'NICHT PLATZIERT', '', '', '']
@@ -374,6 +410,38 @@ module JTools
         xmlst = Fraesliste.write(dir, base, files)
         files << xmlst if xmlst
         files
+      end
+
+      # Nacharbeit der nicht gefrästen Teile: Geländerstäbe (Zuschnitt nach
+      # Länge) und gerade Handläufe (klassisch, mit Bohrungen für die Stäbe)
+      def manual_notes(parts)
+        lines = []
+        bars = parts.select { |pt| pt.kind == :bar }
+        unless bars.empty?
+          lines << "Geländerstäbe – nicht gefräst, Zuschnitt (#{bars.size} Stück)"
+          bars.group_by { |pt| pt.info.sub(/^Geländerstab \S+ /, '') }.each do |sec, list|
+            ls = list.map { |pt| pt.size[0] }
+            lines << "  #{list.size} × #{sec}, Längen #{ls.min.round}–#{ls.max.round} mm (gesamt #{fmt(ls.sum / 1000.0, 2)} m):"
+            list.each_slice(8) { |sl| lines << '    ' + sl.map { |pt| "#{pt.label} #{pt.size[0].round}" }.join(', ') }
+          end
+          lines << '  Enden rechtwinklig; unten in Stufe bzw. Wange, oben lotrecht in den Handlauf gesteckt.'
+          lines << ''
+        end
+        rails = parts.select { |pt| pt.kind == :rail && pt.manual }
+        unless rails.empty?
+          lines << "Gerade Handläufe – klassisch gefertigt (#{rails.size} Stück)"
+          rails.each do |pt|
+            m = pt.manual
+            lines << "  #{pt.label}: #{pt.info.sub(/, \d+ Bohrungen.*$/, '')} – Länge #{fmt(m[:len], 0)} mm (Oberkante), " \
+                     "Querschnitt #{fmt(m[:w], 0)} × #{fmt(m[:h], 0)} mm, Neigung #{fmt(m[:slope])}°, Enden lotrecht"
+            next if m[:holes].empty?
+            lines << "    #{m[:holes].size} Bohrungen von unten lotrecht (#{fmt(90.0 - m[:slope])}° zur Unterkante), Ø #{fmt(m[:d])} mm, " \
+                     "Tiefe #{fmt(m[:depth])} mm, mittig in der Breite"
+            lines << "    Abstand entlang der Unterkante ab unterem Ende (mm): #{m[:holes].map { |x| fmt(x) }.join('; ')}"
+          end
+          lines << ''
+        end
+        lines
       end
 
       # Werkstattliste der Pfosten: Taschen (Stufen) und Bohrungen je Fläche
@@ -408,7 +476,7 @@ module JTools
       # Daten für die Vorschau im Dialog
       def preview(res, o)
         {
-          plate: [o['plate_l'], o['plate_w']],
+          plate: [o['plate_l'], table_w(o)],
           margin: o['margin'],
           sheets: res.sheets.map do |sh|
             {
@@ -463,7 +531,7 @@ module JTools
         end
         by_t = res.sheets.group_by(&:thickness).map do |t, ss|
           area = ss.map { |s| s.placements.map { |pl| pl.part.area }.sum }.sum
-          ["Platten #{fmt(t)} mm", ss.size, format('%.0f %% Ausnutzung', 100.0 * area / (ss.size * o['plate_l'] * o['plate_w']))]
+          ["Platten #{fmt(t)} mm", ss.size, format('%.0f %% Ausnutzung', 100.0 * area / (ss.size * o['plate_l'] * table_w(o)))]
         end
         dr = res.parts.flat_map(&:drills)
         unless dr.empty?
@@ -486,8 +554,10 @@ module JTools
         nrun = bs.count { |b| b.splits && b.splits.values.any? { |sp| sp[:runs] && sp[:runs].size > 1 } } +
                ls.count { |lp| lp.split[:runs].size > 1 }
         unless ls.empty?
-          rows << ['Wangen und Handläufe mit eigenem Rohling', ls.size, ls.sum { |lp| lp.split[:runs].size }.to_s + ' TCN']
+          rows << ['Wangen, Handläufe und Pfosten mit eigenem Rohling', ls.size, ls.sum { |lp| lp.split[:runs].size }.to_s + ' TCN']
         end
+        ma = res.manual || []
+        rows << ['Nicht gefräst (Stäbe, gerade Handläufe)', ma.size, 'Teileliste und …_Nacharbeit.txt'] unless ma.empty?
         rows << ['Überlange Wangen (2 Läufe, drehen)', nrun, "Verfahrweg #{fmt(o['mach_l'], 0)} mm"] if nrun > 0
         tools = res.sheets.map { |sh| [sh.thickness, sh.tool] } + bs.map { |b| [b.t, outer_tool(o, b.t)] } +
                 ls.map { |lp| [lp.part.thickness, outer_tool(o, lp.part.thickness)] }

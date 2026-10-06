@@ -21,7 +21,8 @@
 module JTools
   module Treppenbau
     class Part
-      attr_accessor :id, :label, :kind, :thickness, :poly, :pockets, :pocket_depth, :info, :pocket_paths, :drills, :ops
+      attr_accessor :id, :label, :kind, :thickness, :poly, :pockets, :pocket_depth, :info, :pocket_paths, :drills, :ops,
+                    :no_tcn, :manual
 
       def initialize(kind, label, thickness, poly, pockets = [], pocket_depth = 0.0, info = '')
         @kind = kind
@@ -34,6 +35,8 @@ module JTools
         @pocket_paths = []
         @drills = []
         @ops = nil # Pfosten: Taschen und Bohrungen je Fläche (Railing.post_joinery, mm)
+        @no_tcn = nil # Grund, wenn das Teil nicht gefräst wird (nur Teileliste/Nacharbeit)
+        @manual = nil # Angaben für die Nacharbeit (gerader Handlauf: Bohrungen)
       end
 
       def area
@@ -77,10 +80,10 @@ module JTools
         if p['rail'] != 'keins'
           if opts[:posts]
             parts.concat(posts(plan, p, st_sides, einstand))
-            rb = round_bars(plan, p)
-            unless rb.empty?
-              warnings << format('Runde Geländerstäbe werden nicht aus der Platte gefräst: %d Stück Ø %s mm, Längen %s mm (Zuschnitt vom Rundstab).',
-                                 rb.size, format('%g', (rb[0][:d] * MM).round(1)).tr('.', ','), rb.map { |q| (q[:ztop] - q[:zbot]) * MM }.minmax.map(&:round).uniq.join('–'))
+            bs = parts.select { |pt| pt.kind == :bar }
+            unless bs.empty?
+              warnings << format('Geländerstäbe werden nicht gefräst (keine TCN): %d Stück %s, Längen %s mm – siehe Teileliste und Nacharbeit.',
+                                 bs.size, bs[0].info.sub(/^Geländerstab \S+ /, ''), bs.map { |pt| pt.size[0] }.minmax.map(&:round).uniq.join('–'))
             end
           end
           if opts[:rail]
@@ -416,11 +419,16 @@ module JTools
             end
             res << part
           end
+          # Stäbe: nur Zuschnitt (anders gefertigt), keine TCN
           sd[:bars].each do |q|
             ln = q[:ztop] - q[:zbot]
-            next if ln < 2 || q[:shape] == 'rund'
-            res << Part.new(:bar, "ST#{res.count { |x| x.kind == :bar } + 1}", q[:d] * MM, rect(ln * MM, q[:d] * MM), [], 0.0,
-                            "Geländerstab #{nm}")
+            next if ln < 2
+            qs = format('%g', (q[:d] * MM).round(1)).tr('.', ',')
+            sec = q[:shape] == 'rund' ? "rund Ø #{qs} mm" : "quadratisch #{qs} × #{qs} mm"
+            part = Part.new(:bar, "ST#{res.count { |x| x.kind == :bar } + 1}", q[:d] * MM, rect(ln * MM, q[:d] * MM), [], 0.0,
+                            "Geländerstab #{nm} #{sec}")
+            part.no_tcn = 'Geländerstab (Zuschnitt)'
+            res << part
           end
         end
         res
@@ -456,13 +464,6 @@ module JTools
             d: r.(h[:d]), depth: r.(h[:depth]), into: h[:into] ? r.(h[:into]) : nil, what: h[:what] }
         end
         (pk + hl).sort_by { |o| [o[:face], o[:z] || o[:z0]] }
-      end
-
-      # Runde Geländerstäbe (kein Plattenteil, nur Zuschnittliste)
-      def round_bars(plan, p)
-        Railing.compute(plan, p)[:sides].flat_map do |sd|
-          sd[:bars].select { |q| q[:shape] == 'rund' && q[:ztop] - q[:zbot] >= 2 }
-        end
       end
 
       # Handlauf je Feld als Platte (Dicke = Handlaufbreite), Umriss in der
@@ -501,6 +502,20 @@ module JTools
               { x: hp[i][0][0], y: hp[i][0][1], depth: q[:depth] * MM, d: q[:d] * MM, ang: ang }
             end
             part.info += ", #{part.drills.size} Bohrungen (Geländerstäbe)" unless part.drills.empty?
+            unless rl[:curved]
+              # gerader Handlauf: klassisch gefertigt, Bohrungen für die Nacharbeit
+              x0 = xs[0]; x1 = xs[-1]
+              zb = ->(x) { rl[:bots][0] + (x - x0) / [x1 - x0, 1e-9].max * (rl[:bots][-1] - rl[:bots][0]) }
+              sl = Math.atan2(rl[:bots][-1] - rl[:bots][0], x1 - x0)
+              holes = drl.map do |q|
+                x = Geo.dot(Geo.sub(q[:pt], pts[0]), dir)
+                Math.hypot(x - x0, zb.(x) - zb.(x0)) * MM
+              end
+              part.no_tcn = 'gerader Handlauf (klassisch gefertigt)'
+              part.manual = { len: Math.hypot(x1 - x0, (rl[:tops][-1] - rl[:tops][0])) * MM, w: rl[:w] * MM, h: rl[:h] * MM,
+                              slope: sl * 180.0 / Math::PI, holes: holes,
+                              d: drl.empty? ? 0.0 : drl[0][:d] * MM, depth: drl.empty? ? 0.0 : drl[0][:depth] * MM }
+            end
             res << part
           end
         end
