@@ -14,12 +14,14 @@ Params::NOSPIRAL.each do |v|
       maxover = 0; minover = 1e9; minunder = 1e9; jump = 0.0; kink = 0.0
       r[:wange].each do |b|
         (form == 'kurve' && !b[:landing] ? b[:keyed] : b[:req]).each do |u, z|
+          next if u < b[:u0] - 1e-6 || u > b[:u1] + 1e-6 # außerhalb des gekürzten Bretts (stumpfer Stoß)
           o = Stringers.top(b, u) - (z - over)
           maxover = [maxover, o].max; minover = [minover, o].min
         end
         # Mindestabstand unten: dicht abgetastet über jede Stufe
         b[:steps].each do |_k, a, e, zr|
-          (0..20).each { |i| u = a + (e - a) * i / 20.0; minunder = [minunder, zr + under - Stringers.bot(b, u)].min }
+          # nur wo das Brett liegt (vor/hinter einem Pfosten als Zwischenstück gekürzt)
+          (0..20).each { |i| u = a + (e - a) * i / 20.0; next if u < b[:u0] - 1e-6 || u > b[:u1] + 1e-6; minunder = [minunder, zr + under - Stringers.bot(b, u)].min }
         end
         # Trittstufe ganz bedeckt: Oberkante über Stufe k mind. nose_z(k)+over
         if form == 'kurve'

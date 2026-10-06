@@ -1,4 +1,4 @@
-# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.8.0, 05.10.2026 – Branch `drachenstufe`, PR gegen `main`)
+# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.9.0, 06.10.2026 – Branch `claude/gelaender-pfosten-e1r6fs`, PR #5 gegen `main`)
 
 ## Was es ist
 SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Export nach TCN (TpaCAD), angelehnt an Jürgens Plugin **dxf4tcn**.
@@ -34,6 +34,18 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
+
+## Version 2.9.0 (Branch `claude/gelaender-pfosten-e1r6fs`, PR #5) – Geländer neu, Wangen stumpf gestoßen (erster Entwurf)
+- **Wangenstöße ohne Gehrung** (`Stringers.butt_joints`/`corner_joint`): L-förmig läuft die von unten kommende Wange durch, die folgende ist um die Wangendicke gekürzt; U-förmig laufen die Wangen der Läufe durch, der Querverbinder ist um beide Dicken gekürzt. Gilt für eingestemmte und aufgesattelte Wangen (Parameter `sat_joint` entfällt).
+- **Wangen als Körper aus zwei Flächenumrissen** (`Stringers.wange_faces` + `Builder#lprism`): Ober-/Unterseite stehen rechtwinklig zur Brettfläche, keine verwundenen Flächen – auch das geschwungene Mittelstück ist ohne 5-Achs-Bearbeitung fräsbar.
+- **Geländer** (`railing.rb`, ohne SketchUp-API): Pfosten am Antritt, am Austritt und an jedem Laufwechsel (Ecke bzw. Vorderkante eines geraden Zwischenpodests), Handlauf von Pfosten zu Pfosten, Stäbe dazwischen (lichter Abstand ≤ `bal_gap`).
+  - eingestemmte Wange: Stäbe lotrecht in die Wangenoberkante eingelassen (`bal_depth`), Bohrungen am Wangenteil (`Part#drills`, Winkel in der Teilebene = schräg zur Kante);
+  - aufgesattelt/frei/Holm/Massiv: Stäbe auf den Stufen, je Stufe gleiche Felder, Stab in Feldmitte, Mindestabstand `bal_edge` zu beiden Stufenkanten (Vorrang vor `bal_gap`, sonst Warnung); Bohrungen an den Trittstufen.
+- **Pfosten als Zwischenstücke** (`Stringers.post_joints`): auf Geländerseiten enden die eingestemmten Wangen rechtwinklig an den Pfostenflächen; Lage aus `Railing.post_positions` (gemeinsame Quelle). Ecken ohne Pfosten bleiben stumpf gestoßen.
+- **Handlauf** rechteckig von Pfosten zu Pfosten: Breite = Wangendicke (`str_t` bzw. `sat_t`, ohne Wange `rail_d`), Höhe `rail_hh` (8 cm), Oberkante `rail_h` über den Stufenkanten. Wangenform „gerade“: je Feld die niedrigste Gerade über allen Stufenkanten; „geschwungen“: knickfreie Kurve (pchip) – CNC-Teil ist dann eine aus dem Vollen gefräste Platte mit gebogenem Umriss (Dicke = Handlaufbreite). Im Grundriss gebogene Handläufe (Wendeltreppe) werden nicht exportiert.
+- Neue Parameter: `rail_hh` (8 cm), `newel_s` (9 cm), `bal_d` (2,5 cm), `bal_gap` (12 cm), `bal_edge` (3 cm), `bal_depth` (3 cm); `post_every`/`post_s` entfallen.
+- Tests: `test/railing_test.rb` (neu), `stringer_test`/`sattel_*` auf stumpfe Stöße umgestellt.
+- Offen: Bohrungen noch nicht im TCN-Export/Plattenvorschau; Stufen am Pfosten nicht ausgeklinkt; U mit Treppenauge innen zwei Eckpfosten; aufgesattelte Wange, dreiläufig mit Podest und Setzstufen: am inneren U-Stoß ragt das durchlaufende Podestbrett in die letzte Stufe des Querlaufs (`sattel_stufen_test`, 4 Fälle).
 
 ## Version 2.8.0 (Branch `drachenstufe`) – Drachenstufe darf außermittig liegen, Schenkel innen ≥ 2 cm
 Vorgabe Jürgen (05.10.2026): Die Drachenstufe muss nicht halb/halb auf der Ecke liegen, aber an der Innenseite muss der kleinere Schenkel mindestens 2 cm lang sein.

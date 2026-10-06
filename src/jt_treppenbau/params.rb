@@ -187,10 +187,6 @@ module JTools
         { key: 'sat_rest', label: 'Restbreite unter der Ausklinkung', type: 'number', default: 12.0, unit: 'cm', group: 'Tragkonstruktion', min: 4, step: 0.5, constr: ['wange'], side: 'sattel',
           help: 'Rechtwinklig gemessen vom inneren Eckpunkt der Ausklinkungen bis zur Wangenunterkante.' },
         { key: 'sat_inset', label: 'Stufenüberstand seitlich über aufgesattelter Wange', type: 'number', default: 3.0, unit: 'cm', group: 'Tragkonstruktion', min: 0, step: 0.5, constr: ['wange'], side: 'sattel' },
-        { key: 'sat_joint', label: 'Ecken der aufgesattelten Wange', type: 'select', default: 'gehrung', group: 'Tragkonstruktion', constr: ['wange'], side: 'sattel',
-          options: [['gehrung', 'auf Gehrung'], ['stumpf', 'stumpf gestoßen']],
-          help: 'Wo zwei Wangenbretter an einer Ecke zusammentreffen: Gehrung (Stoß auf der Winkelhalbierenden) oder stumpf ' \
-                '(unteres Brett läuft durch, oberes stößt an). Die Brettenden sind in beiden Fällen schräg und passgenau.' },
         { key: 'holm_w', label: 'Holmbreite', type: 'number', default: 12.0, unit: 'cm', group: 'Tragkonstruktion', min: 4, step: 1, constr: ['holm'] },
         { key: 'holm_h', label: 'Holmhöhe (lotrecht)', type: 'number', default: 24.0, unit: 'cm', group: 'Tragkonstruktion', min: 8, step: 1, constr: ['holm'] },
         { key: 'slab_t', label: 'Laufplattendicke', type: 'number', default: 16.0, unit: 'cm', group: 'Tragkonstruktion', min: 8, step: 1, constr: ['massiv'] },
@@ -198,12 +194,24 @@ module JTools
         # --- Geländer --------------------------------------------------------
         { key: 'rail', label: 'Geländer / Handlauf', type: 'select', default: 'aussen', group: 'Geländer',
           options: [['keins', 'kein Geländer'], ['aussen', 'außen'], ['innen', 'innen'], ['beide', 'beidseitig']] },
-        { key: 'rail_h', label: 'Handlaufhöhe (über Stufenvorderkante)', type: 'number', default: 90.0, unit: 'cm', group: 'Geländer', min: 60, step: 1 },
-        { key: 'rail_d', label: 'Handlaufdurchmesser', type: 'number', default: 4.5, unit: 'cm', group: 'Geländer', min: 2, step: 0.5 },
-        { key: 'post_every', label: 'Pfosten an jeder n-ten Stufe', type: 'number', default: 1, unit: 'Stk', group: 'Geländer', min: 1, step: 1 },
-        { key: 'post_s', label: 'Pfostenquerschnitt', type: 'number', default: 4.0, unit: 'cm', group: 'Geländer', min: 1, step: 0.5 },
+        { key: 'rail_h', label: 'Handlaufhöhe (Oberkante über Stufenvorderkante)', type: 'number', default: 90.0, unit: 'cm', group: 'Geländer', min: 60, step: 1 },
+        { key: 'rail_hh', label: 'Handlauf: Querschnittshöhe', type: 'number', default: 8.0, unit: 'cm', group: 'Geländer', min: 2, step: 0.5,
+          help: 'Rechteckiger Handlauf von Pfosten zu Pfosten. Breite = Wangendicke (eingestemmte bzw. aufgesattelte Wange). ' \
+                'Bei geschwungener Wangenform verläuft auch der Handlauf geschwungen und wird als Platte aus dem Vollen gefräst.' },
+        { key: 'rail_d', label: 'Handlaufbreite (Seiten ohne Wange)', type: 'number', default: 4.5, unit: 'cm', group: 'Geländer', min: 2, step: 0.5 },
+        { key: 'newel_s', label: 'Pfostenquerschnitt (Antritt, Austritt, Laufwechsel)', type: 'number', default: 9.0, unit: 'cm', group: 'Geländer', min: 2, step: 0.5,
+          help: 'Pfosten stehen am Antritt, am Austritt und an jedem Laufwechsel (Ecke bzw. Zwischenpodest). Der Handlauf läuft von Pfosten zu Pfosten.' },
+        { key: 'bal_d', label: 'Stabquerschnitt', type: 'number', default: 2.5, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
+          help: '0 = keine Stäbe.' },
+        { key: 'bal_gap', label: 'Lichter Stababstand (höchstens)', type: 'number', default: 12.0, unit: 'cm', group: 'Geländer', min: 4, step: 0.5,
+          help: 'DIN 18065: höchstens 12 cm. Die Stäbe werden zwischen den Pfosten gleichmäßig verteilt.' },
+        { key: 'bal_edge', label: 'Stab: Mindestabstand zum Stufenrand', type: 'number', default: 3.0, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
+          help: 'Nur wo die Stäbe auf den Stufen stehen (aufgesattelte Wange, freitragend): Abstand Stabkante – Stufenvorderkante bzw. ' \
+                'Vorderkante der nächsten Stufe. Je Stufe wird die Tiefe in gleiche Felder geteilt, der Stab steht in Feldmitte.' },
+        { key: 'bal_depth', label: 'Stab: Einlasstiefe (Bohrung)', type: 'number', default: 3.0, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
+          help: 'Eingestemmte Wange: lotrechte Bohrung in die Wangenoberkante (schräg zur Wangenkante). Auf Stufen: Bohrung in die Trittstufe (höchstens Stufendicke − 1 cm).' },
         { key: 'rail_inset', label: 'Geländerabstand von der Laufkante', type: 'number', default: 5.0, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
-          help: 'Bei Wangentreppen steht das Geländer mittig auf der Wange.' },
+          help: 'Lage der Pfosten- und Stabachse auf den Stufen (aufgesattelt, freitragend). Bei eingestemmten Wangen steht das Geländer mittig auf der Wange.' },
 
         # --- Darstellung ----------------------------------------------------
         { key: 'show_walkline', label: 'Gehlinie einzeichnen', type: 'bool', default: true, group: 'Darstellung' },

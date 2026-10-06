@@ -35,6 +35,8 @@
 # Koordinaten im abgewickelten Brett: u = Parameter entlang der Begrenzungslinie
 # (cm), z = Höhe (cm).
 
+require_relative 'railing' unless defined?(JTools::Treppenbau::Railing)
+
 module JTools
   module Treppenbau
     module Stringers
@@ -125,16 +127,6 @@ module JTools
         [-c, -s]
       end
 
-      # Gehrungs-Normale zwischen zwei Richtungen (side +1 rechts)
-      def miter(d0, d1, side)
-        n0 = side > 0 ? Geo.right(d0) : Geo.left(d0)
-        n1 = side > 0 ? Geo.right(d1) : Geo.left(d1)
-        m = Geo.norm(Geo.add(n0, n1))
-        c = Geo.dot(m, n1)
-        c = 0.3 if c < 0.3
-        Geo.mul(m, 1.0 / c)
-      end
-
       # Endnormale entlang einer (schrägen) Stufenlinie, so skaliert, dass der
       # rechtwinklige Versatz 1 beträgt.
       def along_line(lvec, seg_dir, side)
@@ -157,6 +149,8 @@ module JTools
         zs = (0...plan.nlines).map { |k| plan.nose_z(k) + over }
         boards = []
         lists = []
+        piece_lists = []
+        side_lists = Hash.new { |h, k| h[k] = [] }
         need = 0.0
         %i[outer inner].each do |which|
           next unless kind(plan, p, which) == 'wange'
@@ -210,14 +204,11 @@ module JTools
             list = merge_short(list, 1.5 * p['str_t'].to_f + 1.0)
             # Splitter (< 3 cm, z. B. minimale Podestverlängerung) weglassen
             list = list.reject { |b| b[:u1] - b[:u0] < 3.0 } if list.size > 1
-            # Endnormalen: Gehrung zwischen Brettern, sonst entlang der Stufenlinie
+            # Endnormalen: am Antritt/Austritt entlang der Stufenlinie, zwischen
+            # Brettern rechtwinklig (Ecken: stumpfer Stoß, siehe butt_joints)
             list.each_with_index do |b, i|
-              b[:n0] = if i > 0 then miter(list[i - 1][:dir], b[:dir], side)
-                       elsif b[:idx0] then line_normal(plan, b[:idx0], b[:dir], side)
-                       end
-              b[:n1] = if i < list.size - 1 then miter(b[:dir], list[i + 1][:dir], side)
-                       elsif b[:idx1] then line_normal(plan, b[:idx1], b[:dir], side)
-                       end
+              b[:n0] = line_normal(plan, b[:idx0], b[:dir], side) if i.zero? && b[:idx0]
+              b[:n1] = line_normal(plan, b[:idx1], b[:dir], side) if i == list.size - 1 && b[:idx1]
             end
             if curve
               curve_piece(list, landings, plan)
@@ -226,6 +217,8 @@ module JTools
               lists << list
             end
             piece_boards << list
+            piece_lists << list
+            side_lists[which] << list
             boards.concat(list)
           end
           # Pfosten an Innenecken (zwischen den Profilstücken)
@@ -245,6 +238,7 @@ module JTools
           res[:wmin] = ws.min || 0.0
           res[:need] = res[:width]
           res[:newels].each { |nw| nw[:zbot] = [[bot(nw[:a], nw[:a][:u1]), bot(nw[:b], nw[:b][:u0])].min, 0.0].max }
+          joints(plan, p, res, side_lists)
           return
         end
         # gerade Wange: Unterkante = Parallele im Abstand der Brettbreite zur
@@ -257,6 +251,7 @@ module JTools
         lists.each { |list| straight_bottom(list, width) }
         boards.each { |b| b[:w] = width }
         res[:newels].each { |nw| nw[:zbot] = [[bot(nw[:a], nw[:a][:u1]), bot(nw[:b], nw[:b][:u0])].min, 0.0].max }
+        joints(plan, p, res, side_lists)
         res[:wange] = boards
         res[:width] = width
         res[:need] = need
@@ -723,7 +718,7 @@ module JTools
       # Oberkante der Wange an Parameter u einer Seite (für Geländerpfosten)
       def top_at(plan, p, which, u)
         r = compute(plan, p)
-        b = r[:wange].find { |x| x[:which] == which && u >= x[:u0] - 1e-6 && u <= x[:u1] + 1e-6 }
+        b = r[:wange].find { |x| x[:which] == which && u >= (x[:ru0] || x[:u0]) - 1e-6 && u <= (x[:ru1] || x[:u1]) + 1e-6 }
         b ? top(b, u) : nil
       end
 
@@ -790,6 +785,250 @@ module JTools
         len = Geo.dist(b[:base][0], b[:base][-1])
         base = us.map { |u| Geo.add(b[:base][0], Geo.mul(b[:dir], (u - b[:u0]) * len / (b[:u1] - b[:u0]))) }
         [base, us.map { |u| top(b, u) }, us.map { |u| [bot(b, u), 0.0].max }]
+      end
+
+      # Stöße aller Wangenseiten: auf Geländerseiten sitzen die Pfosten
+      # (Antritt, Austritt, Laufwechsel) als Zwischenstücke zwischen den
+      # Brettern (post_joints), sonst stumpfer Stoß an den Ecken (butt_joints).
+      # Die Eckpfosten an Innenecken entfallen auf Geländerseiten.
+      def joints(plan, p, res, side_lists)
+        t = p['str_t'].to_f
+        posts = p['rail'] == 'keins' ? [] : Railing.sides(plan, p)
+        side_lists.each do |which, lists|
+          if posts.include?(which)
+            post_joints(plan, p, which, lists.flatten(1), t)
+          else
+            lists.each { |list| butt_joints(list, t) }
+          end
+        end
+        res[:newels].reject! { |nw| posts.include?(nw[:which]) }
+      end
+
+      # --- Pfosten als Zwischenstück ---------------------------------------
+      #
+      # bl: alle Bretter einer Seite in Laufrichtung. Lage der Pfosten aus
+      # Railing.post_positions (u = Pfostenmitte auf der Begrenzung, Kante
+      # newel_s). Bretter enden rechtwinklig an der Pfostenfläche:
+      #   Antritt/Austritt – erstes Brett beginnt hinter, letztes endet vor dem Pfosten;
+      #   Ecke   – Pfostenmitte im Schnitt der Wangenmittellinien, beide
+      #            Bretter um je die halbe Pfostenkante zurückgesetzt;
+      #   Podest – (gerades Zwischenpodest) Pfosten an der Podestvorderkante.
+      # Ecken ohne Pfosten bleiben stumpf gestoßen.
+      def post_joints(plan, p, which, bl, t)
+        return if bl.empty?
+        s = p['newel_s'].to_f
+        bl.each { |b| b[:ru0] ||= b[:u0]; b[:ru1] ||= b[:u1] }
+        done = {}
+        Railing.post_positions(plan, p, which).each do |q|
+          u = q[:u]
+          case q[:role]
+          when :antritt
+            b = bl[0]
+            sh = u + s / 2.0 - b[:u0]
+            if sh > 0 && b[:u1] - b[:u0] - sh > 2.0
+              shift_start(b, sh)
+              b[:n0] = nil
+            end
+          when :austritt
+            b = bl[-1]
+            sh = u - s / 2.0 - b[:u1]
+            if sh < 0 && b[:u1] - b[:u0] + sh > 2.0
+              shift_end(b, sh)
+              b[:n1] = nil
+            end
+          when :ecke, :podest
+            corner = q[:role] == :ecke
+            i = (0...bl.size - 1).select do |j|
+              kink = Geo.cross(bl[j][:dir], bl[j + 1][:dir]).abs > KINK || Geo.dot(bl[j][:dir], bl[j + 1][:dir]) < 0
+              kink == corner && !done[j]
+            end.min_by { |j| (bl[j][:ru1] - (corner ? u : u - s / 2.0)).abs }
+            next unless i
+            ok = corner ? post_corner(bl[i], bl[i + 1], t, s) : post_inline(bl[i], bl[i + 1], u, s)
+            done[i] = true if ok
+          end
+        end
+        # verbleibende Ecken (ohne Pfosten): stumpf, unteres Brett gewinnt
+        (0...bl.size - 1).each do |j|
+          next if done[j]
+          corner_joint(bl[j], bl[j + 1], t, :a)
+        end
+      end
+
+      # Pfosten an einer Ecke zwischen Brett a (unten) und b (oben)
+      def post_corner(a, b, t, s)
+        da = a[:dir]; db = b[:dir]; side = a[:side]
+        cr = Geo.cross(da, db)
+        return false if cr.abs <= KINK
+        # Schnitt der Wangenmittellinien = Pfostenmitte
+        pa = Geo.add(a[:base][-1], Geo.mul(seg_n(a, side), t / 2.0))
+        pb = Geo.add(b[:base][0], Geo.mul(seg_n(b, side), t / 2.0))
+        dq = Geo.sub(pb, pa)
+        x = Geo.cross(dq, db) / cr
+        y = Geo.cross(dq, da) / cr
+        sa = x - s / 2.0 # Ende von a (+ = länger)
+        sb = y + s / 2.0 # Anfang von b (+ = kürzer)
+        return false if a[:u1] + sa - a[:u0] < 2.0 || b[:u1] - b[:u0] - sb < 2.0
+        shift_end(a, sa)
+        shift_start(b, sb)
+        a[:n1] = nil
+        b[:n0] = nil
+        true
+      end
+
+      # Pfosten in der Flucht (gerades Zwischenpodest): a endet vor, b beginnt
+      # hinter dem Pfosten
+      def post_inline(a, b, u, s)
+        sa = u - s / 2.0 - a[:u1]
+        sb = u + s / 2.0 - b[:u0]
+        return false if a[:u1] + sa - a[:u0] < 2.0 || b[:u1] - b[:u0] - sb < 2.0
+        shift_end(a, sa)
+        shift_start(b, sb)
+        a[:n1] = nil
+        b[:n0] = nil
+        true
+      end
+
+      # --- Stöße zwischen Brettern (stumpf, keine Gehrung) ----------------
+      #
+      # An jeder Ecke läuft ein Brett durch („gewinnt“), das andere stößt
+      # rechtwinklig dagegen und ist um die Brettdicke gekürzt:
+      #   * L-förmiger Verlauf: das von unten kommende Brett gewinnt;
+      #   * U-förmiger Verlauf (Seite zwischen zwei Ecken, Nachbarseiten
+      #     gegenläufig): die Bretter der Läufe gewinnen, der Querverbinder
+      #     ist um beide Wangendicken gekürzt.
+      # Stöße in gleicher Flucht (Podeste) bleiben rechtwinklig wie sie sind.
+      # Das gewinnende Brett wird über die Ecke hinaus verlängert, Ober- und
+      # Unterkante dort waagerecht (bündig mit dem Ende des anderen Bretts).
+      def butt_joints(list, t)
+        return if list.size < 2 || t <= 0
+        # Seiten = Folgen von Brettern in gleicher Richtung (zusammenhängend)
+        sides = [[list[0]]]
+        list.each_cons(2) do |a, b|
+          if Geo.cross(a[:dir], b[:dir]).abs > KINK || Geo.dot(a[:dir], b[:dir]) < 0
+            sides << [b]
+          else
+            sides[-1] << b
+          end
+        end
+        return if sides.size < 2
+        quer = sides.each_index.map do |i|
+          i > 0 && i < sides.size - 1 && Geo.dot(sides[i - 1][-1][:dir], sides[i + 1][0][:dir]) < -0.5
+        end
+        list.each { |b| b[:ru0] ||= b[:u0]; b[:ru1] ||= b[:u1] }
+        sides.each_cons(2).with_index do |(sa, sb), i|
+          winner = quer[i] && !quer[i + 1] ? :b : :a
+          corner_joint(sa[-1], sb[0], t, winner)
+        end
+      end
+
+      # Stumpfer Stoß an einer Ecke zwischen Brett a (unten) und b (oben);
+      # winner :a / :b. Gilt für beliebige Winkel: das verlierende Brett liegt
+      # mit seinem Ende an der Fläche des gewinnenden, dessen Ende bündig mit
+      # der Fläche des verlierenden abschließt (bei 90° beide rechtwinklig).
+      # gap: Abstand zwischen den Brettern (z. B. für ein späteres Zwischenstück).
+      def corner_joint(a, b, t, winner, gap = 0.0, again = true)
+        da = a[:dir]; db = b[:dir]; side = a[:side]
+        cr = Geo.cross(da, db)
+        return if cr.abs <= KINK
+        # Eckpunkt = Schnitt der beiden Innenflächen
+        pa = a[:base][-1]; pb = b[:base][0]
+        dq = Geo.sub(pb, pa)
+        x = Geo.cross(dq, db) / cr
+        y = Geo.cross(dq, da) / cr
+        na = seg_n(a, side); nb = seg_n(b, side)
+        dan = [Geo.dot(da, nb).abs, 0.3].max
+        dbn = [Geo.dot(db, na).abs, 0.3].max
+        convex = cr * side > 0 # Wange außen um die Ecke
+        ea, eb = if winner == :a
+                   convex ? [t / dan, 0.0] : [0.0, t / dbn]
+                 else
+                   convex ? [0.0, -t / dbn] : [-t / dan, 0.0]
+                 end
+        if gap > 0
+          ea -= gap / 2.0
+          eb += gap / 2.0
+        end
+        sa = x + ea      # Ende von a verschieben (+ = länger)
+        sb = eb + y      # Anfang von b verschieben (+ = kürzer)
+        # zu kurzes Brett: Stoß tauschen (sonst rechtwinklig lassen)
+        if a[:u1] + sa - a[:u0] < 2.0 || b[:u1] - b[:u0] - sb < 2.0
+          return again ? corner_joint(a, b, t, winner == :a ? :b : :a, gap, false) : nil
+        end
+        shift_end(a, sa)
+        shift_start(b, sb)
+        a[:n1] = along_line(db, da, side)
+        b[:n0] = along_line(da, db, side)
+      end
+
+      # Brettende um s verschieben (s > 0 verlängern, Kanten waagerecht)
+      def shift_end(b, s)
+        return if s.abs < 1e-6
+        u1 = b[:u1] + s
+        e = Geo.add(b[:base][-1], Geo.mul(b[:dir], s))
+        keep = b[:us].each_index.select { |i| i.positive? && b[:us][i] < u1 - 1e-6 && i < b[:us].size - 1 }
+        b[:base] = [b[:base][0]] + keep.map { |i| b[:base][i] } + [e]
+        b[:us] = [b[:us][0]] + keep.map { |i| b[:us][i] } + [u1]
+        %i[tp bp].each do |k|
+          pts = b[k]
+          b[k] = if s > 0
+                   pts + [[u1, pts[-1][1]]]
+                 else
+                   pts.select { |u, _| u < u1 - 1e-6 } + [[u1, interp(pts, u1)]]
+                 end
+        end
+        b[:ext1] = [s, 0.0].max
+        b[:u1] = u1
+      end
+
+      # Brettanfang um s verschieben (s > 0 kürzen, s < 0 verlängern)
+      def shift_start(b, s)
+        return if s.abs < 1e-6
+        u0 = b[:u0] + s
+        st = Geo.add(b[:base][0], Geo.mul(b[:dir], s))
+        keep = b[:us].each_index.select { |i| i.positive? && i < b[:us].size - 1 && b[:us][i] > u0 + 1e-6 }
+        b[:base] = [st] + keep.map { |i| b[:base][i] } + [b[:base][-1]]
+        b[:us] = [u0] + keep.map { |i| b[:us][i] } + [b[:us][-1]]
+        %i[tp bp].each do |k|
+          pts = b[k]
+          b[k] = if s < 0
+                   [[u0, pts[0][1]]] + pts
+                 else
+                   [[u0, interp(pts, u0)]] + pts.select { |u, _| u > u0 + 1e-6 }
+                 end
+        end
+        b[:ext0] = [-s, 0.0].max
+        b[:u0] = u0
+      end
+
+      # Brett als Körper aus zwei Flächenumrissen (für Builder#lprism):
+      # Innenfläche auf der Begrenzungslinie, Außenfläche um t rechtwinklig
+      # versetzt. Ober- und Unterkante hängen nur von der Lage entlang des
+      # Bretts ab -> Ober- und Unterseite stehen rechtwinklig zur Brettfläche
+      # (keine verwundenen Flächen, mit 3-/4-Achs-CNC fräsbar); die Enden
+      # sind senkrechte Ebenen (Stoß, Stufenlinie am Antritt/Austritt).
+      # Liefert [origin (Mittelfläche bei x = 0), dir, pa (−t/2), pb (+t/2)].
+      def wange_faces(b, t)
+        dir = b[:dir]; u0 = b[:u0]
+        len = b[:u1] - u0
+        pn = seg_n(b, b[:side])
+        dx = ->(n) { n ? Geo.dot(n, dir) / Geo.dot(n, pn) * t : 0.0 }
+        xin = [0.0, len]
+        xout = [dx.(b[:n0]), len + dx.(b[:n1])]
+        lo = [xin[0], xout[0]].max + 0.01
+        hi = [xin[1], xout[1]].min - 0.01
+        xs = (b[:tp].map(&:first) + clipped_bottom(b).map(&:first)).map { |u| u - u0 }.select { |v| v > lo && v < hi }.sort
+        xs = xs.each_with_object([]) { |v, o| o << v if o.empty? || v - o[-1] > 0.005 }
+        face = lambda do |x0, x1|
+          xx = [x0] + xs + [x1]
+          bo = xx.map { |v| [bot(b, u0 + v), 0.0].max }
+          tp = xx.each_with_index.map { |v, i| [v, [top(b, u0 + v), bo[i] + 0.5].max] }
+          tp + xx.each_with_index.map { |v, i| [v, bo[i]] }.reverse
+        end
+        fin = face.(*xin); fout = face.(*xout)
+        origin = Geo.add(b[:base][0], Geo.mul(pn, t / 2.0))
+        # Innenfläche liegt bei −t/2 entlang Geo.right(dir), wenn die Wange rechts liegt
+        pa, pb = b[:side] > 0 ? [fin, fout] : [fout, fin]
+        [origin, dir, pa, pb]
       end
 
       # --- aufgesattelte Wangen ------------------------------------------
@@ -883,11 +1122,22 @@ module JTools
             recs << { v0: v0, v1: v1, a: v0, b: v1, cs: cs, cr: cr, f: [c, s], ops: [], landing: lk,
                       dir: Geo.norm(Geo.sub(sp.at(v1), sp.at(v0))) }
           end
-          # Ecken (Knick zwischen zwei Brettern): stumpfer Stoß ohne
-          # Durchdringung – das untere Brett läuft bis zur Außenfläche des
-          # oberen durch, das obere stößt an die Seitenfläche des unteren.
-          # Unterkante des oberen Bretts beginnt auf Höhe der Unterkante des
-          # unteren Bretts.
+          # Ecken (Knick zwischen zwei Brettern): immer stumpfer Stoß ohne
+          # Durchdringung, keine Gehrung. Unterkante des oberen Bretts beginnt
+          # auf Höhe der Unterkante des unteren Bretts.
+          # Gewinner je Ecke wie bei der eingestemmten Wange (butt_joints):
+          # L-förmig das untere Brett, U-förmig die Läufe (Querverbinder um
+          # beide Dicken gekürzt).
+          sides = [[recs[0]]]
+          recs.each_cons(2) do |ra, rb|
+            kink = Geo.cross(ra[:dir], rb[:dir]).abs > KINK || Geo.dot(ra[:dir], rb[:dir]) < 0
+            kink ? sides << [rb] : sides[-1] << rb
+          end
+          quer = sides.each_index.map do |i|
+            i > 0 && i < sides.size - 1 && Geo.dot(sides[i - 1][-1][:dir], sides[i + 1][0][:dir]) < -0.5
+          end
+          side_of_rec = {}
+          sides.each_with_index { |sd, i| sd.each { |r| side_of_rec[r.object_id] = i } }
           recs.each_cons(2) do |ra, rb|
             # (ein sehr kurzes, weggelassenes Stück dazwischen ist erlaubt)
             next unless rb[:v0] - ra[:v1] < 1.5
@@ -899,21 +1149,46 @@ module JTools
             pa = sp.at(ra[:v1]); pb = sp.at(rb[:v0]); dq = Geo.sub(pb, pa)
             xa = Geo.cross(dq, rb[:dir]) / cr
             yb = Geo.cross(dq, ra[:dir]) / cr
-            if p['sat_joint'] == 'stumpf'
+            i = side_of_rec[ra.object_id]
+            if quer[i] && !quer[i + 1]
+              # oberes Brett läuft durch, unteres stößt an
+              ra[:b] = ra[:v1] + xa - t / 2.0 * (1.0 + cs_) / sn
+              rb[:a] = rb[:v0] + yb - t / 2.0 / sn
+              ra[:end_f] = [-1, 1].map { |f| [-1, 1].map { |g| board_cross(sp, ra, f * t / 2.0, board_face(sp, rb, g * t / 2.0)) }.compact.min }
+              rb[:start_f] = [-1, 1].map { |f| [-1, 1].map { |g| board_cross(sp, rb, f * t / 2.0, board_face(sp, ra, g * t / 2.0)) }.compact.min }
+            else
+              # unteres Brett läuft bis zur Außenfläche des oberen durch, das
+              # obere stößt an die Seitenfläche des unteren (schräge Enden, passgenau)
               ra[:b] = ra[:v1] + xa + t / 2.0 / sn
               rb[:a] = rb[:v0] + yb + t / 2.0 * (1.0 + cs_) / sn
-              # Flächen: unteres Brett bis zur Außenfläche des oberen, oberes
-              # bis zur Seitenfläche des unteren (schräge Enden, passgenau)
               ra[:end_f] = [-1, 1].map { |f| [-1, 1].map { |g| board_cross(sp, ra, f * t / 2.0, board_face(sp, rb, g * t / 2.0)) }.compact.max }
               rb[:start_f] = [-1, 1].map { |f| [-1, 1].map { |g| board_cross(sp, rb, f * t / 2.0, board_face(sp, ra, g * t / 2.0)) }.compact.max }
-            else
-              # Gehrung: beide Bretter enden auf der Winkelhalbierenden
-              ra[:b] = ra[:v1] + xa
-              rb[:a] = rb[:v0] + yb
-              ra[:end_f] = [-1, 1].map { |f| board_cross(sp, ra, f * t / 2.0, board_face(sp, rb, f * t / 2.0)) }
-              rb[:start_f] = [-1, 1].map { |f| board_cross(sp, rb, f * t / 2.0, board_face(sp, ra, f * t / 2.0)) }
             end
             rb[:joint] = ra
+          end
+          # über die Ecke verlängertes Brett (oberes gewinnt): Ausklinkungen im
+          # verlängerten Bereich gehören auch zu den Restbreiten-Ecken
+          recs.each do |r|
+            next unless r[:a] < r[:v0] - 0.01 || r[:b] > r[:v1] + 0.01
+            ext = (corners + corners_r).select do |v, _|
+              (v >= r[:a] - 0.01 && v < r[:v0] - 0.01) || (v > r[:v1] + 0.01 && v <= r[:b] + 0.01)
+            end
+            r[:cr] = (r[:cr] + ext).uniq
+          end
+          # verlierendes Brett so kurz, dass es entfällt (z. B. Podeststück
+          # am Querverbinder): Unterkante an das davor liegende Brett anschließen
+          recs.each do |r|
+            ra = r[:joint]
+            next unless ra && ra[:b] - ra[:a] < 1.0
+            i = recs.index { |x| x.equal?(ra) }
+            prev = i && i > 0 ? recs[i - 1] : nil
+            next unless prev && ra[:v0] - prev[:v1] < 1.5
+            r[:joint] = prev
+            # das davor liegende Brett endet dann an derselben Stelle
+            if ra[:b] < prev[:b]
+              prev[:b] = ra[:b]
+              prev[:end_f] = ra[:end_f] if ra[:end_f]
+            end
           end
           sat_curve(recs, corners, rest) if curve
           recs.each do |r|
@@ -943,17 +1218,19 @@ module JTools
           no = 0
           recs.each do |r|
             v0 = r[:a]; v1 = r[:b]
+            next if v1 - v0 < 1.0 # durch den Stoß entfallenes Reststück
             ztop_at = lambda do |v, after|
               k = cuts.rindex { |cv| after ? cv <= v + 1e-9 : cv < v - 1e-9 }
               k ? zt[k] : 0.0
             end
             top = [[v0, ztop_at.(v0, true)]]
             cuts.each_with_index do |cv, k|
-              next unless cv > v0 + 1e-6 && cv < r[:v1] - 1e-6
+              # (gekürztes Brett, Querverbinder: nur bis zum Brettende v1)
+              next unless cv > v0 + 1e-6 && cv < [r[:v1], v1].min - 1e-6
               top << [cv, k > 0 ? zt[k - 1] : 0.0] << [cv, zt[k]]
             end
             top << [r[:v1], ztop_at.(r[:v1], false)] if v1 > r[:v1] + 1e-6
-            top << [v1, ztop_at.(r[:v1], false)]
+            top << [v1, ztop_at.([r[:v1], v1].min, false)]
             if r[:bf]
               bp = sat_samples(r).map { |v| [v, r[:bf].(v)] }
             else
@@ -1103,6 +1380,9 @@ module JTools
           end
         end
         lo = lo.map { |x| x + push } if push > 0
+        # Anfang über das Brettende hinaus verschoben (Hindernis überdeckt das
+        # ganze Brett, z. B. Podestbrett am U-Stoß): nicht darstellbar
+        return nil if lo.any? { |x| x > b + 1e-3 }
         # Ausklinkung im Bereich eines schrägen Brettendes (Gehrung): liegt sie
         # auf einer Fläche hinter dem Ende, endet das Brett an der Ausklinkung
         st = steps.().find { |_, pos| pos.each_with_index.any? { |q, j| q >= hi[j] - eps } }

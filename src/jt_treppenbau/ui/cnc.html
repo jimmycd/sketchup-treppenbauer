@@ -89,7 +89,7 @@
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var NS = 'http://www.w3.org/2000/svg';
-  var COL = { tread:'#ead4ae', landing:'#cfe0ef', riser:'#e3c98f', stringer:'#b98a5a', newel:'#a7865f', post:'#9a9a9a', rail:'#8a8a8a' };
+  var COL = { tread:'#ead4ae', landing:'#cfe0ef', riser:'#e3c98f', stringer:'#b98a5a', newel:'#a7865f', post:'#9a9a9a', bar:'#b0b0b0', rail:'#8a8a8a' };
 
   var FIELDS = [
     { g:'Rohplatte', key:'plate_l', label:'Länge (X, Faserrichtung)', unit:'mm', step:1 },
@@ -107,7 +107,7 @@
     { g:'Teile', key:'p_treads', label:'Trittstufen und Podeste', type:'bool', need:'notmassiv' },
     { g:'Teile', key:'p_risers', label:'Setzstufen', type:'bool', need:'risers' },
     { g:'Teile', key:'p_stringers', label:'Wangen (abgewickelt, mit Nuten)', type:'bool', need:'wange' },
-    { g:'Teile', key:'p_posts', label:'Geländerpfosten', type:'bool', need:'rail' },
+    { g:'Teile', key:'p_posts', label:'Geländerpfosten und -stäbe', type:'bool', need:'rail' },
     { g:'Teile', key:'p_rail', label:'Handlauf (gerade Stücke)', type:'bool', need:'rail' },
     { g:'Nuten (Einstand in Wange)', key:'einstand', label:'Einstand / Nuttiefe', unit:'mm', step:1, need:'wange',
       help:'Tritt- und Setzstufen werden um dieses Maß in die Wangen verlängert, die Wangen erhalten passende Nuten. 0 = keine Nuten.' },
