@@ -339,11 +339,11 @@ module JTools
         res = []
         Railing.compute(plan, p)[:sides].each do |sd|
           nm = sd[:which] == :outer ? 'außen' : 'innen'
-          sd[:posts].each do |q|
+          (sd[:posts] + (sd[:mids] || [])).each do |q|
             ln = q[:ztop] - q[:zbot]
             next if ln < 2
-            res << Part.new(:post, "G#{res.count { |x| x.kind == :post } + 1}", q[:s] * MM, rect(ln * MM, q[:s] * MM), [], 0.0,
-                            "Geländerpfosten #{nm} (#{q[:role]})")
+            info = q[:role] == :mitte ? "Zwischenpfosten #{nm} (unter dem Handlauf, Enden schräg)" : "Geländerpfosten #{nm} (#{q[:role]})"
+            res << Part.new(:post, "G#{res.count { |x| x.kind == :post } + 1}", q[:s] * MM, rect(ln * MM, q[:s] * MM), [], 0.0, info)
           end
           sd[:bars].each do |q|
             ln = q[:ztop] - q[:zbot]
@@ -385,10 +385,20 @@ module JTools
             # Faser entlang der Sehne der Oberkante
             axis = Geo.sub(top[-1], top[0])
             rot, = rotation_for(axis)
-            pp, = transform_all(poly, [], rot)
+            # Bohrungen der Stäbe: Ansatz an der Unterkante, lotrecht nach oben
+            drl = rl[:drills] || []
+            holes = drl.map { |q| [[Geo.dot(Geo.sub(q[:pt], pts[0]), dir) * MM, q[:z] * MM]] }
+            pp, hp = transform_all(poly, holes, rot)
             info = rl[:curved] ? 'Handlauf geschwungen (aus dem Vollen gefräst)' : 'Handlauf'
-            res << Part.new(:rail, "H#{res.size + 1}", rl[:w] * MM, pp, [], 0.0,
+            part = Part.new(:rail, "H#{res.size + 1}", rl[:w] * MM, pp, [], 0.0,
                             "#{info} #{sd[:which] == :outer ? 'außen' : 'innen'}")
+            dv = Geo.rot([0.0, 1.0], rot)
+            ang = (Math.atan2(dv[1], dv[0]) * 180.0 / Math::PI).round(2)
+            part.drills = drl.each_with_index.map do |q, i|
+              { x: hp[i][0][0], y: hp[i][0][1], depth: q[:depth] * MM, d: q[:d] * MM, ang: ang }
+            end
+            part.info += ", #{part.drills.size} Bohrungen (Geländerstäbe)" unless part.drills.empty?
+            res << part
           end
         end
         w = []

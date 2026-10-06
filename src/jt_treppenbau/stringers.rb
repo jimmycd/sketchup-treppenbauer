@@ -1215,6 +1215,13 @@ module JTools
             next unless sl
             r[:ops] << [zp > fz ? :max : :min, [zp - sl * vp, sl]]
           end
+          # Geländerseite: Antritts- und Austrittspfosten stehen in der Treppe
+          # (wie bei der eingestemmten Wange), die Wange stößt an den Pfosten
+          if !recs.empty? && p['rail'] != 'keins' && Railing.sides(plan, p).include?(which)
+            va, vb = sat_post_cut(plan, p, which, sp, side)
+            recs[0][:a] = [recs[0][:a], va].max if va && va < recs[0][:b] - 2.0
+            recs[-1][:b] = [recs[-1][:b], vb].min if vb && vb > recs[-1][:a] + 2.0
+          end
           no = 0
           recs.each do |r|
             v0 = r[:a]; v1 = r[:b]
@@ -1268,6 +1275,24 @@ module JTools
             res[:sattel] << sb
           end
         end
+      end
+
+      # Mittellinie der aufgesattelten Wange (Parameter v) an der Rückseite
+      # des Antrittspfostens und der Vorderseite des Austrittspfostens
+      # (Pfostenflächen rechtwinklig zur Begrenzung)
+      def sat_post_cut(plan, p, which, sp, side)
+        poly = plan.send(which)
+        s = p['newel_s'].to_f
+        qs = Railing.post_positions(plan, p, which)
+        hit = lambda do |u|
+          uc = [[u, 0.0].max, poly.length].min
+          n = Railing.normal_at(poly, uc, side)
+          h = sp.ray_hit(Geo.add(poly.at(uc), Geo.mul(poly.tangent(uc), u - uc)), Geo.mul(n, -1.0))
+          h && h[1]
+        end
+        a = qs.find { |q| q[:role] == :antritt }
+        b = qs.find { |q| q[:role] == :austritt }
+        [a && hit.(a[:u] + s / 2.0), b && hit.(b[:u] - s / 2.0)]
       end
 
       # --- schräge Stöße der aufgesattelten Wange --------------------------
