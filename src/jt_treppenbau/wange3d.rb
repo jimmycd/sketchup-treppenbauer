@@ -38,7 +38,8 @@ module JTools
 
       # long: überlang (Cnc long_mode 'drehen') – kein Formatieren, die Enden
       #       liegen am Anschlag; splits: { Seite => Lauf.split-Ergebnis }
-      Job = Struct.new(:label, :info, :t, :blank, :programs, :notes, :outline, :walls, :sb, :sb_ctx, :long, :splits) do
+      # dowels: Dübel Stufe – Wange (Stringers.sattel_dowels, cm)
+      Job = Struct.new(:label, :info, :t, :blank, :programs, :notes, :outline, :walls, :sb, :sb_ctx, :long, :splits, :dowels) do
         def wenden?
           programs.size > 1
         end
@@ -65,7 +66,8 @@ module JTools
           parts.empty? ? nil : "#{label}: " + parts.join(', ')
         end
       end
-      Prog = Struct.new(:side, :name, :ops, :faces, :preview)
+      # drills: waagerechte Bohrungen (Dübel in der Auflagerkante), Tisch-mm
+      Prog = Struct.new(:side, :name, :ops, :faces, :preview, :drills)
 
       # --- Wände ------------------------------------------------------------
 
@@ -110,15 +112,17 @@ module JTools
 
       def jobs(plan, p, o)
         r = Stringers.compute(plan, p)
+        rl = p['rail'] == 'keins' ? [] : Railing.compute(plan, p)[:sides]
         out = []
         r[:sattel].each do |sb|
           next if sb[:len] < 10.0 || sb[:faces].nil?
-          out << job(sb, o)
+          bars = rl.select { |sd| sd[:which] == sb[:which] }.flat_map { |sd| sd[:bars] || [] }
+          out << job(sb, o, Stringers.sattel_dowels(plan, p, sb, bars))
         end
         out.compact
       end
 
-      def job(sb, o)
+      def job(sb, o, dowels = [])
         t = sb[:t] * MM
         fa, fb = sb[:faces].map { |pl| pl.map { |u, z| [u * MM, z * MM] } }
         ntop = sb[:ntop] || fa.size / 2
@@ -155,8 +159,8 @@ module JTools
         # überlang: Rohteil länger als der Verfahrweg – nicht formatieren
         jb.long = o['long_mode'].to_s == 'drehen' && bl + (wenden ? 2 * FORMAT_OFF : 0.0) > o['mach_l'].to_f
         mode = o['sat_mode'].to_s == 'markieren' ? :mark : :mill
-        s1 = Prog.new(1, nil, [], [], {})
-        s2 = wenden ? Prog.new(2, nil, [], [], {}) : nil
+        s1 = Prog.new(1, nil, [], [], {}, [])
+        s2 = wenden ? Prog.new(2, nil, [], [], {}, []) : nil
         # Gravur Teilenummer
         if o['engrave']
           pl = Struct.new(:part, :poly).new(Struct.new(:label).new(jb.label), outline)
@@ -208,6 +212,15 @@ module JTools
             s1.ops.map! { |op| op[0] == :contour ? [:contour, op[1], :leave_rest] : op }
             s2.ops.unshift([:contour, outline_on(ctx, outline, true), :finish_rest])
           end
+        end
+        # Dübel Stufe – Wange: waagerecht in die Auflagerkante (Seite 1, nach
+        # Außenkontur und Schrägen), Richtung −z (in die Wange)
+        jb.dowels = dowels
+        dowels.each do |dw|
+          a = tab(ctx, [dw[:u] * MM, dw[:z] * MM])
+          dv = Geo.sub(tab(ctx, [dw[:u] * MM, dw[:z] * MM - 1.0]), a)
+          s1.drills << { x: a[0], y: a[1], ang: Math.atan2(dv[1], dv[0]) * 180.0 / Math::PI,
+                         depth: dw[:depth_w] * MM, d: dw[:d] * MM, what: "Duebel Stufe #{dw[:k] + 1}" }
         end
         jb.programs << s1
         jb.programs << s2 if s2

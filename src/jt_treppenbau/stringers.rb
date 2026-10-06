@@ -1334,6 +1334,73 @@ module JTools
         end
       end
 
+      # Dübel zwischen aufgesattelter Wange und Stufe: je Auflager (waagerechtes
+      # Stück der Oberkante, auf beiden Flächen vorhanden) sat_dowels Dübel,
+      # gleichmäßig verteilt (bei 2: auf ¼ und ¾ der Auflagerlänge), mittig in
+      # der Wangendicke. Stabbohrungen in derselben Stufe werden umgangen
+      # (Dübel entlang der Wange verschoben, sonst flacher gebohrt).
+      # Rückgabe (cm): [{ u:, z:, k:, pt:, front:, side:, d:, depth_w:, depth_t: }]
+      def sattel_dowels(plan, p, sb, bars = nil)
+        n = p['sat_dowels'].to_i
+        d = p['sat_dowel_d'].to_f
+        return [] if n <= 0 || d <= 0 || sb[:faces].nil?
+        tt = p['tread_t'].to_f
+        dep_w = p['dowel_depth'].to_f
+        dep_t = [dep_w, tt - 1.0].min
+        return [] if dep_w <= 0 || dep_t <= 0
+        ntop = sb[:ntop] || sb[:faces][0].size / 2
+        seats = sb[:faces].map do |fp|
+          fp[0...ntop].each_cons(2).select { |a, b| (a[1] - b[1]).abs < 1e-6 && b[0] > a[0] + 0.5 && a[1] > 0.5 }
+                      .map { |a, b| [a[0], b[0], a[1]] }
+        end
+        mrg = 2.0 * d
+        bd = plan.send(sb[:which]).pts
+        out = []
+        seats[0].each do |a0, a1, z|
+          s = seats[1].find { |_, _, z2| (z2 - z).abs < 1e-6 }
+          next unless s
+          u0 = [a0, s[0]].max; u1 = [a1, s[1]].min
+          next if u1 - u0 < 2 * mrg
+          k = ((z + tt) / plan.h).round - 1
+          next if k < 0 || k >= plan.treads || ((k + 1) * plan.h - tt - z).abs > 0.01
+          at = ->(u) { Geo.add(sb[:origin], Geo.mul(sb[:dir], u)) }
+          hs = (bars || []).select { |b| b[:tread] == k && b[:drill] }
+          clash = lambda do |u|
+            q = at.(u)
+            hs.any? { |b| Geo.dist(b[:pt], q) < (b[:drill][:d] + d) / 2.0 + 0.5 && b[:drill][:depth] + dep_t > tt - 0.5 }
+          end
+          n.times do |i|
+            u = u0 + (u1 - u0) * (i + 0.5) / n
+            u = [[u, u0 + mrg].max, u1 - mrg].min
+            dt = dep_t
+            if clash.(u)
+              cand = (1..200).flat_map { |j| [u + 0.25 * j, u - 0.25 * j] }
+                             .find { |c| c >= u0 + mrg && c <= u1 - mrg && !clash.(c) && out.none? { |o| o[:k] == k && (o[:u] - c).abs < 2 * d } }
+              if cand
+                u = cand
+              else
+                bdep = hs.map { |b| b[:drill][:depth] }.max
+                dt = [tt - bdep - 0.5, 0.0].max
+              end
+            end
+            next if dt < 0.5
+            q = at.(u)
+            l = plan.line(plan.lines_w[k])
+            ev = Geo.norm(Geo.sub(l[:out], l[:in]))
+            front = Geo.cross(Geo.sub(q, l[:in]), ev).abs
+            # Abstand vom Stufenende (Laufkante; an Ecken läuft das Brett gerade weiter)
+            side = bd.each_cons(2).map do |e0, e1|
+              dv = Geo.sub(e1, e0); l2 = Geo.dot(dv, dv)
+              f = l2 < 1e-12 ? 0.0 : [[Geo.dot(Geo.sub(q, e0), dv) / l2, 0.0].max, 1.0].min
+              Geo.dist(q, Geo.add(e0, Geo.mul(dv, f)))
+            end.min
+            out << { u: u, z: z, k: k, label: plan.kinds[k] == :landing ? "Podest P#{k + 1}" : "Stufe T#{k + 1}", pt: q, front: front, side: side,
+                     d: d, depth_w: dep_w, depth_t: dt }
+          end
+        end
+        out
+      end
+
       # Mittellinie der aufgesattelten Wange (Parameter v) an der Rückseite
       # des Antrittspfostens und der Vorderseite des Austrittspfostens
       # (Pfostenflächen rechtwinklig zur Begrenzung)
