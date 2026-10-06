@@ -6,7 +6,7 @@
 # Nuten, und jeder Wangendübel hat sein Gegenstück im Pfosten.
 require_relative 'su_mock'
 $LOAD_PATH.unshift File.expand_path('../src', __dir__)
-%w[params geometry fit stringers railing builder parts nesting tcn lauf wange3d cnc].each { |f| require "jt_treppenbau/#{f}" }
+%w[params geometry fit stringers railing builder parts nesting tcn lauf wange3d fraesliste cnc].each { |f| require "jt_treppenbau/#{f}" }
 include JTools::Treppenbau
 
 def edge_dist(poly, q)
@@ -84,6 +84,61 @@ cases = 0
         j[:holes].each do |h|
           errs << "Pfosten #{q[:role]}: Bohrung außerhalb (a=#{h[:a].round(2)})" if h[:a] < 0 || h[:a] > q[:s] || h[:z] < 0 || h[:z] > q[:ztop] - q[:zbot]
         end
+      end
+      # Pfosten-TCN: jede Tasche und Bohrung genau einmal, in dem Programm
+      # mit ihrer Fläche oben, an der richtigen Stelle (Tisch -> 3D)
+      o = Cnc.normalize({})
+      jn.each_value do |j|
+        q = j[:q]
+        next if j[:pockets].empty? && j[:holes].empty?
+        ln = q[:ztop] - q[:zbot]
+        pt = Part.new(:post, 'GT', q[:s] * 10.0, Parts.rect(ln * 10.0, q[:s] * 10.0))
+        pt.ops = Parts.post_ops(j[:sd], q, j)
+        steps = Lauf.post_progs(pt, o, 1004)
+        faces = Railing.post_faces(q)
+        h = q[:s] / 2.0
+        errs << "Pfosten #{q[:role]}: Flächen #{steps.map { |x| x[:face] }} statt #{pt.ops.map { |x| x[:face] }.uniq.sort}" if steps.map { |x| x[:face] }.sort != pt.ops.map { |x| x[:face] }.uniq.sort
+        prev = nil
+        steps.each_with_index do |st, i|
+          f = st[:face]
+          errs << "Pfosten #{q[:role]}: abrollen #{st[:rolls]}" if prev && st[:rolls] != (f - prev) % 4
+          prev = f
+          off = i.zero? ? o['blank_margin'] : 0.0
+          pg = st[:prog]
+          errs << "Pfosten #{q[:role]}: Programm #{i + 1} Außenkontur" if i.zero? != pg[:ops].any? { |x| x[:cut] }
+          # Tischrahmen in 3D: X = Höhe, oben = Außennormale der Fläche, Y = oben × X
+          nf = faces[f][:n]
+          yv = [nf[1], -nf[0]]
+          fr = faces[(f + 1) % 4][:n]
+          errs << "Pfosten #{q[:role]}: vorne nicht Fläche #{(f + 1) % 4 + 1}" if Geo.dot(fr, yv) > -0.999
+          mine = pt.ops.select { |x| x[:face] == f }
+          dr = pg[:ops].select { |x| x[:k] == :vdrill }
+          pk = pg[:ops].select { |x| x[:k] == :mill && !x[:cut] }
+          errs << "Pfosten #{q[:role]} Fläche #{f + 1}: #{dr.size} Bohrungen statt #{mine.count { |x| x[:kind] == :hole }}" if dr.size != mine.count { |x| x[:kind] == :hole }
+          errs << "Pfosten #{q[:role]} Fläche #{f + 1}: #{pk.size} Taschen statt #{mine.count { |x| x[:kind] == :pocket }}" if pk.size != mine.count { |x| x[:kind] == :pocket }
+          mine.select { |x| x[:kind] == :hole }.zip(dr).each do |hh, op|
+            want = Geo.add(faces[f][:a], Geo.mul(faces[f][:dir], hh[:a] / 10.0))
+            got = Geo.add(Geo.add(q[:pt], Geo.mul(nf, h)), Geo.mul(yv, (op[:pt][1] - off) / 10.0 - h))
+            errs << "Pfosten #{q[:role]} Fläche #{f + 1}: Bohrung falsch (#{Geo.dist(want, got).round(2)} cm)" if Geo.dist(want, got) > 0.01
+            errs << "Pfosten #{q[:role]}: Bohrhöhe falsch" if ((op[:pt][0] - off) - hh[:z]).abs > 0.01
+            errs << "Pfosten #{q[:role]}: Bohrtiefe" if (op[:depth] - hh[:depth]).abs > 0.01
+          end
+          mine.select { |x| x[:kind] == :pocket }.zip(pk).each do |t, op|
+            ys = op[:pts].map { |x| x[1] - off }; xs = op[:pts].map { |x| x[0] - off }
+            r = o['pocket_d'] / 2.0
+            ok = xs.min >= t[:z0] + r - 7.1 && xs.max <= t[:z1] - r + 7.1 && ys.min >= q[:s] * 10 - t[:a1] + r - 7.1 && ys.max <= q[:s] * 10 - t[:a0] - r + 7.1
+            errs << "Pfosten #{q[:role]} Fläche #{f + 1}: Tasche #{t[:what]} außerhalb" unless ok
+            errs << "Pfosten #{q[:role]}: Taschentiefe TCN" if (op[:z] + t[:depth]).abs > 0.01
+          end
+        end
+      end
+      if e > 0 && sl == 'wange'
+        res = Cnc.compute(plan, p, o)
+        po = res.longs.select { |lp| lp.part.kind == :post && lp.part.ops }
+        errs << 'Pfosten mit Bearbeitung ohne Programme je Fläche' if po.any? { |lp| lp.steps.nil? }
+        np = po.sum { |lp| lp.part.ops.size }
+        nt = po.sum { |lp| lp.steps.sum { |st| st[:split][:runs].sum { |rn| rn.prog[:ops].count { |x| !x[:cut] && !x[:tabbed] } } } }
+        errs << "Pfosten-TCN: #{nt} Bearbeitungen statt #{np}" if nt != np
       end
       # Dübel in den eingestemmten Wangen
       nd_w = 0

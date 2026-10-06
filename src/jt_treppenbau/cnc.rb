@@ -72,11 +72,14 @@ module JTools
       # Handläufe, Geländerpfosten): je Teil ein eigenes Programm, überlang in
       # zwei Läufen
       OWN_BLANK = %i[stringer rail post].freeze
-      LongPart = Struct.new(:part, :prog, :split, :notes) do
+      # steps: Geländerpfosten mit Taschen/Bohrungen – je Fläche ein Programm
+      # [{ face:, rolls:, prog:, split: }] (das erste ist prog/split)
+      LongPart = Struct.new(:part, :prog, :split, :notes, :steps) do
         def label; part.label; end
         def blank; [prog[:l], prog[:w]]; end
         def kind_name; Parts::KIND_NAMES[part.kind] || part.kind.to_s; end
         # Dateiname ohne Umlaute
+        def tcn_count; (steps || [{ split: split }]).sum { |st| st[:split][:runs].size }; end
         def file_kind; kind_name.gsub('ä', 'ae').gsub('ö', 'oe').gsub('ü', 'ue').gsub('ß', 'ss').gsub(/[^A-Za-z0-9]+/, '_'); end
       end
       SheetInfo = Struct.new(:thickness, :index, :count, :placements, :used_len, :util, :tool)
@@ -206,6 +209,12 @@ module JTools
           lp = long_part(pt, o, warnings)
           lp ? longs << lp : unplaced << pt
         end
+        np = longs.select { |lp| lp.steps }
+        unless np.empty?
+          warnings << "#{np.size} Geländerpfosten mit Taschen (Stufen) bzw. Bohrungen (Dübel Wange, Befestigung): " \
+                      "#{np.sum { |lp| lp.steps.size }} Programme, je bearbeitete Fläche eines von oben, dazwischen abrollen – " \
+                      'Einrichtung siehe …_Nacharbeit.txt.'
+        end
         nest.group_by(&:thickness).sort.each do |th, list|
           tl = outer_tool(o, th)
           w = depth_warning("Platten #{fmt(th)} mm", tl)
@@ -257,7 +266,8 @@ module JTools
       # Eingestemmte Wange bzw. Handlauf: eigener Rohling (blank_margin ringsum)
       def long_part(pt, o, warnings)
         tl = outer_tool(o, pt.thickness)
-        prog = Lauf.from_part(pt, o, tl[:nr])
+        steps = pt.kind == :post ? Lauf.post_progs(pt, o, tl[:nr]) : []
+        prog = steps.empty? ? Lauf.from_part(pt, o, tl[:nr]) : steps[0][:prog]
         name = Parts::KIND_NAMES[pt.kind] || pt.kind.to_s
         if prog[:w] > table_w(o) + 1e-6
           warnings << "#{name} #{pt.label}: Rohling #{prog[:w].round} mm breiter als der Tisch (#{table_w(o).round} mm)."
@@ -277,7 +287,37 @@ module JTools
           warnings << "#{name} #{pt.label} überlang (Rohling #{prog[:l].round} × #{prog[:w].round} mm): 2 Läufe, " \
                       'dazwischen drehen – Einrichtung siehe …_Nacharbeit.txt.'
         end
-        LongPart.new(pt, prog, sp, notes)
+        return LongPart.new(pt, prog, sp, notes) if steps.empty?
+        steps[0][:split] = sp
+        steps[1..-1].each do |st|
+          st[:split] = o['long_mode'] == 'drehen' ? Lauf.split(st[:prog], o, o['pocket_d'].to_f / 2.0) :
+                         { runs: [Lauf::Run.new('A', false, st[:prog], nil)], x_t: nil, warnings: [] }
+          st[:split][:warnings].each { |w| warnings << "#{name} #{pt.label} #{st[:prog][:title]}: #{w}" }
+          return nil unless st[:split][:runs]
+        end
+        notes.concat(post_notes(pt, steps))
+        LongPart.new(pt, prog, sp, notes, steps)
+      end
+
+      # Einrichtblatt eines Geländerpfostens mit mehreren Programmen (Wenden)
+      def post_notes(pt, steps)
+        n = steps.size
+        lines = ["#{pt.label}: #{n} Programm#{n > 1 ? 'e' : ''} (Taschen und Bohrungen je Fläche von oben, " \
+                 'Unterende immer am linken X-Anschlag, Pfosten am vorderen Y-Anschlag).']
+        steps.each_with_index do |st, i|
+          fn = pt.ops.find { |x| x[:face] == st[:face] }[:face_name]
+          front = "Fläche #{(st[:face] + 1) % 4 + 1}"
+          lines << if i.zero?
+                     "#{pt.label}: Schritt 1 – Rohling mit #{fn} oben, #{front} vorne; ausfräsen, danach Unterende und #{fn} anzeichnen."
+                   else
+                     "#{pt.label}: Schritt #{i + 1} – #{st[:rolls] == 1 ? '' : "#{st[:rolls]} × "}90° nach hinten abrollen " \
+                       "(vordere Fläche nach oben): #{fn} oben, #{front} vorne."
+                   end
+        end
+        if pt.ops.any? { |x| x[:kind] == :pocket }
+          lines << "#{pt.label}: Taschenecken innen mit Fräserradius gerundet – Stufenecken passend brechen oder Taschenecken nachstemmen."
+        end
+        lines
       end
 
       # Einrichtblatt für zwei Läufe
@@ -345,12 +385,16 @@ module JTools
           end
         end
         (res.longs || []).each do |lp|
-          runs = lp.split[:runs]
-          runs.each do |run|
-            path = File.join(dir, "#{base}_#{lp.file_kind}_#{lp.label}#{runs.size > 1 ? "_#{run.name}" : ''}.tcn")
-            Tcn.write_prog(path, runs.size > 1 ? Lauf.labeled(run) : run.prog)
-            files << path
-            (bfiles[lp.label] ||= []) << File.basename(path)
+          steps = lp.steps || [{ split: lp.split }]
+          steps.each_with_index do |st, i|
+            runs = st[:split][:runs]
+            stp = lp.steps && steps.size > 1 ? "_#{i + 1}_Flaeche#{st[:face] + 1}" : ''
+            runs.each do |run|
+              path = File.join(dir, "#{base}_#{lp.file_kind}_#{lp.label}#{stp}#{runs.size > 1 ? "_#{run.name}" : ''}.tcn")
+              Tcn.write_prog(path, runs.size > 1 ? Lauf.labeled(run) : run.prog)
+              files << path
+              (bfiles[lp.label] ||= []) << File.basename(path)
+            end
           end
         end
         notes = (res.boards || []).flat_map(&:notes) + (res.longs || []).flat_map(&:notes)
@@ -475,7 +519,7 @@ module JTools
 
       # Werkstattliste der Pfosten: Taschen (Stufen) und Bohrungen je Fläche
       def post_sheet(posts)
-        lines = ['Geländerpfosten – Taschen und Bohrungen (mm)',
+        lines = ['Geländerpfosten – Taschen und Bohrungen (mm, zur Kontrolle; gefräst in den Pfosten-TCN, je Fläche ein Programm)',
                  'Fläche 1–4: Pfostenquerschnitt gegen den Uhrzeigersinn (von oben), Richtung in Klammern.',
                  'a = Abstand von der linken Pfostenkante beim Blick auf die Fläche, z = Höhe ab Pfostenunterkante.',
                  'Richtungen bei Eckpfosten bezogen auf den ankommenden Lauf. Bohrungen rechtwinklig zur Fläche.', '']
@@ -574,7 +618,7 @@ module JTools
         unless po.empty?
           rows << ['Pfosten mit Taschen/Bohrungen', po.size,
                    "#{po.sum { |pt| pt.ops.count { |x| x[:kind] == :pocket } }} Taschen, " \
-                   "#{po.sum { |pt| pt.ops.count { |x| x[:kind] == :hole } }} Bohrungen (…_Pfosten_Bearbeitung.txt)"]
+                   "#{po.sum { |pt| pt.ops.count { |x| x[:kind] == :hole } }} Bohrungen (TCN je Fläche, Liste …_Pfosten_Bearbeitung.txt)"]
         end
         bs = res.boards || []
         unless bs.empty?
@@ -585,7 +629,7 @@ module JTools
         nrun = bs.count { |b| b.splits && b.splits.values.any? { |sp| sp[:runs] && sp[:runs].size > 1 } } +
                ls.count { |lp| lp.split[:runs].size > 1 }
         unless ls.empty?
-          rows << ['Wangen, Handläufe und Pfosten mit eigenem Rohling', ls.size, ls.sum { |lp| lp.split[:runs].size }.to_s + ' TCN']
+          rows << ['Wangen, Handläufe und Pfosten mit eigenem Rohling', ls.size, ls.sum(&:tcn_count).to_s + ' TCN']
         end
         nd = bs.sum { |b| (b.dowels || []).size }
         rows << ['Dübel Stufe – aufgesattelte Wange', nd, (o['drill_wange'] == 'markieren' ? 'Wange markiert' : 'Wange mit Aggregat') + ', Stufen von Hand (…_Nacharbeit.txt)'] if nd > 0

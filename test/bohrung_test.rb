@@ -52,6 +52,8 @@ cases = 0
           nh = (lp.part.drills || []).count { |h| h[:ang] }
           w81 = tcn.count { |l| l.start_with?('W#81{') }
           exp = mode == 'markieren' ? nd - nh : nd
+          # Pfosten: Bohrungen (Dübel, Befestigung) im ersten Programm von oben
+          exp += lp.steps[0][:prog][:ops].count { |x| x[:k] == :vdrill } if lp.steps
           errs << "#{lp.label}: #{w81} Bohrblöcke statt #{exp}" if w81 != exp
           gs = tcn.count { |l| l.start_with?('GSIDE#') }
           errs << "#{lp.label}: Hilfsflächen #{gs} statt #{mode == 'bohren' ? nh : 0}" if gs != (mode == 'bohren' ? nh : 0)
