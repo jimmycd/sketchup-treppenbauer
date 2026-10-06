@@ -297,12 +297,20 @@
       (b.paths || []).forEach(function (pa) {
         el('polyline', { points: P(pa), fill: 'none', stroke: '#6b4a26', 'stroke-width': sw * 1.5 });
       });
+      // Bohrungen (Geländerstäbe, Dübel): Ansatzpunkt, waagerechte mit Richtung
+      (b.drills || []).forEach(function (h) {
+        el('circle', { cx: h[0], cy: Y(h[1]), r: h[2] / 2, fill: '#c0392b', opacity: 0.85 });
+        if (h[4] !== null && h[4] !== undefined) {
+          var a = h[4] * Math.PI / 180;
+          el('line', { x1: h[0], y1: Y(h[1]), x2: h[0] + Math.cos(a) * h[3], y2: Y(h[1] + Math.sin(a) * h[3]), stroke: '#c0392b', 'stroke-width': h[2] });
+        }
+      });
       if (b.split != null) {
         el('line', { x1: b.split, y1: -pad, x2: b.split, y2: W + pad, stroke: '#2a6fdb', 'stroke-width': sw * 2, 'stroke-dasharray': (10 * sw) + ',' + (6 * sw) });
         var ta = el('text', { x: b.split - 6 * sw, y: 12 * sw, 'font-size': 11 * sw, fill: '#2a6fdb', 'text-anchor': 'end' });
-        ta.textContent = 'Lauf A';
+        ta.textContent = 'Lauf A · Feld N1';
         var tb = el('text', { x: b.split + 6 * sw, y: 12 * sw, 'font-size': 11 * sw, fill: '#2a6fdb' });
-        tb.textContent = 'Lauf B';
+        tb.textContent = 'Lauf B · Feld N (180° gedreht)';
       }
       b.walls.forEach(function (w) {
         el('polyline', { points: P(w.line), fill: 'none', stroke: C[w.how] || '#000', 'stroke-width': sw * 4 });

@@ -36,6 +36,10 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
 
+## Version 2.17.0 – Vorschau: Bohrungen der Wangen mit eigenem Rohling
+- Fehler „bei überlangen Wangen fehlen die Bohrungen für die Geländerstäbe“: In den TCN (Lauf A/B) waren die Bohrungen enthalten (W#81 + GSIDE je Bohrung); es fehlte die Anzeige in der CNC-Vorschau für alle Teile mit eigenem Rohling (eingestemmte Wangen, Handläufe, Pfosten), seit sie nicht mehr verschachtelt werden. `Lauf.from_part` liefert jetzt `drills` (Rohling-Koordinaten), `Cnc.preview` gibt sie aus, `cnc.html` zeichnet sie (waagerechte mit Richtung).
+- Vorschau beschriftet die Teilung mit „Lauf A · Feld N1“ und „Lauf B · Feld N (180° gedreht)“. Kopfzeile wie bisher `s3`/`s6`.
+
 ## Version 2.16.0 – TCN: Maschinenbreite, Pfosten einzeln, Stäbe und gerade Handläufe ohne TCN
 - **Breite Y höchstens `mach_w`** (neu, 1300 mm; Rohplatte `plate_w` jetzt Standard 1300): `Cnc.table_w` = min(Rohplatte, Maschine) für Verschachtelung, Platten-TCN (`DH`), Rohling-Prüfung eigener Teile und aufgesattelter Wangen. Breitere Wangen-Seiten werden nicht exportiert (Teileliste „NICHT EXPORTIERT“).
 - **Geländerpfosten je eine TCN** (`OWN_BLANK` + `:post`, Datei `…_Gelaenderpfosten_G<n>.tcn`, eigener Rohling wie Handlauf; Taschen/Bohrungen weiter in `…_Pfosten_Bearbeitung.txt`). Dateinamen ohne Umlaute (`LongPart#file_kind`).
