@@ -86,8 +86,9 @@ cases = 0
           ws = tcn.join("\n").scan(/WS=(\d+)/).flatten.map(&:to_i)
           errs << 'WS nicht fortlaufend' unless ws.sort == (1..ws.size).to_a
         end
-        # je Stab genau eine Bohrung (Stufe bzw. Wange), sofern ein Teil existiert
-        want = bars.count { |b| b[:drill] && b[:ztop] - b[:zbot] >= 2 }
+        # je Stab genau eine Bohrung unten (Stufe bzw. Wange) und eine oben
+        # (Handlauf), sofern ein Teil existiert
+        want = bars.count { |b| b[:drill] && b[:ztop] - b[:zbot] >= 2 } + bars.count { |b| b[:rdrill] && b[:ztop] - b[:zbot] >= 2 }
         errs << "Bohrungen #{nb}, Stäbe mit Bohrung #{want}" if nb > want || nb < want * 0.9
         round_w = res.warnings.any? { |w| w.start_with?('Runde Geländerstäbe') }
         errs << 'Hinweis runde Stäbe fehlt' if shape == 'rund' && !round_w

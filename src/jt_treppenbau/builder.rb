@@ -294,7 +294,7 @@ module JTools
             g = band(grp.entities, rl[:pts], rl[:tops], rl[:bots], sd[:side], -rl[:w] / 2.0, rl[:w] / 2.0, m)
             g.name = "Handlauf #{nm}" if g
           end
-          sd[:posts].each do |q|
+          (sd[:posts] + (sd[:mids] || [])).each do |q|
             g = prism(grp.entities, square(q[:pt], q[:tg], q[:s]), q[:ztop], q[:zbot], m)
             g.name = "Pfosten #{nm} (#{q[:role]})" if g
           end

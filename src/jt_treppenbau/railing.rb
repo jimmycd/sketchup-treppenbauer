@@ -12,17 +12,28 @@
 #     niedrigste über allen Stufenkanten), „geschwungen“: knickfreie Kurve
 #     durch die Stufenkanten (wie die Wange) – dann wird der Handlauf als
 #     Platte aus dem Vollen gefräst (Teil mit gekrümmtem Umriss).
+#     An Eckpfosten endet der Handlauf an der Pfostenfläche (die Achse ist
+#     gegen die Begrenzung versetzt, daher nicht einfach u ± newel_s/2).
+#   * Pfosten am Antritt/Austritt: bei eingestemmter und aufgesattelter Wange
+#     innerhalb der Treppe (Wange stößt an den Pfosten), sonst davor/dahinter.
+#   * Zwischenpfosten: Feld zwischen zwei Pfosten im Grundriss länger als
+#     rail_mid -> Pfosten in der Mitte (an der Stelle des mittleren Stabs),
+#     UNTER dem Handlauf (Handlauf läuft durch); steht auf der Wange bzw. Stufe.
 #   * Stäbe zwischen den Pfosten, lichter Abstand höchstens bal_gap; quadratisch
-#     (Kantenlänge bal_d) oder rund (Durchmesser bal_dia), Bohrung Ø = Stabmaß:
+#     (Kantenlänge bal_d) oder rund (Durchmesser bal_dia), Bohrung Ø = Stabmaß.
+#     Lage im Stufenraster: je Stufe wird die Stufentiefe (auf der Stabachse,
+#     von Vorderkante zu Vorderkante der nächsten Stufe) in m gleiche Felder
+#     geteilt, der Stab steht in Feldmitte – bei gleich tiefen Stufen ein
+#     durchgehend gleicher Stababstand, jede Stufe gleich besetzt.
 #       eingestemmte Wange – jeder Stab steht lotrecht auf der Wangenoberkante
 #         und ist um bal_depth eingelassen (lotrechte Bohrung, d. h. schräg zur
-#         Wangenkante); gleichmäßig zwischen den Pfosten verteilt.
+#         Wangenkante).
 #       aufgesattelte Wange, freitragend, Holm, Massiv – die Stäbe stehen auf
-#         den Stufen. Je Stufe wird die Stufentiefe (auf der Stabachse, von
-#         Vorderkante zu Vorderkante der nächsten Stufe) in m gleiche Felder
-#         geteilt, der Stab steht in Feldmitte. Bei gleich tiefen Stufen
-#         ergibt das einen durchgehend gleichen Stababstand, und jeder Stab
-#         hält mindestens bal_edge Abstand zu beiden Stufenkanten.
+#         den Stufen, jeder Stab hält mindestens bal_edge Abstand zu beiden
+#         Stufenkanten.
+#     Oben sind die Stäbe lotrecht in den Handlauf gebohrt (Tiefe bal_depth,
+#     höchstens Handlaufhöhe − 1 cm, gemessen ab Unterkante in Stabmitte).
+#     Wo neben Pfosten eine Lücke > bal_gap bleibt, wird sie aufgefüllt.
 # Koordinaten: u = Parameter (cm) entlang der Begrenzung (plan.inner bzw.
 # plan.outer), z = Höhe (cm). Die Achse von Pfosten/Stäben/Handlauf liegt
 # auf der Wangenmitte bzw. um rail_inset nach innen versetzt.
@@ -52,7 +63,9 @@ module JTools
       #   Handlauf (je Feld zwischen zwei Pfosten):
       #     { ua:, ub:, w:, h:, curved:, us: [...], pts: [[x, y], ...] (Achse),
       #       tops: [...], bots: [...] }
+      #     drills: [{ u:, pt:, z:, depth:, d: }] (lotrecht von unten, z = Unterkante)
       #   Pfosten: { u:, pt:, tg:, s:, zbot:, ztop:, role: :antritt | :austritt | :ecke | :podest }
+      #   Zwischenpfosten (mids): wie Pfosten, role: :mitte
       #   Stab:    { u:, pt:, tg:, d:, shape: 'rund' | 'quadrat', zbot:, ztop:, tread: k | nil,
       #              drill: { u:, z:, depth:, d: } }   (Bohrung in Wange bzw. Stufe,
       #              Ø = Durchmesser bzw. Kantenlänge)
@@ -84,7 +97,9 @@ module JTools
                   when 'sattel' then p['sat_t']
                   else p['rail_d']
                   end
-        sd[:posts] = post_positions(plan, p, which, keys, mount == :wange)
+        inside = %w[wange sattel].include?(Params.side_kind(p, which, plan.outer_side, !plan.spiral.nil?))
+        sd[:posts] = post_positions(plan, p, which, keys, inside)
+        sd[:posts].each { |q| frame(sd, q, p['newel_s']) }
         sd[:spans] = spans(plan, p, sd)
         sd[:posts] = posts(plan, p, sd)
         sd[:bars] = bars(plan, p, sd, warnings)
@@ -138,8 +153,8 @@ module JTools
       def spans(plan, p, sd)
         curved = p['str_form'] == 'kurve'
         sd[:posts].each_cons(2).map do |pa, pb|
-          ua = pa[:u] + p['newel_s'] / 2.0
-          ub = pb[:u] - p['newel_s'] / 2.0
+          ua = face_u(sd, pa, 1)
+          ub = face_u(sd, pb, -1)
           pts = [[ua, rail_z(sd, ua)]]
           sd[:keys].each_with_index { |k, i| pts << [k, sd[:zs][i]] if k > ua + 0.01 && k < ub - 0.01 }
           pts << [ub, rail_z(sd, ub)]
@@ -154,8 +169,62 @@ module JTools
                 c, sl = Stringers.top_line(pts)
                 ->(u) { c + sl * u }
               end
-          { ua: ua, ub: ub, f: f, pts: pts }
+          { ua: ua, ub: ub, f: f, pts: pts, pa: pa, pb: pb }
         end
+      end
+
+      # Lage (Mittelpunkt, Ausrichtung) eines Pfostens
+      def frame(sd, q, s)
+        poly = sd[:poly]
+        u = q[:u]
+        q[:s] = s
+        q[:pt] = axis_pt(sd, u)
+        # an der Ecke nach dem ankommenden Lauf ausgerichtet
+        q[:tg] = q[:role] == :ecke ? poly.tangent(u - 0.01) : poly.tangent([[u, 0.01].max, poly.length - 0.01].min)
+      end
+
+      # Achse eines Laufs (Schenkel) an einer Ecke, geradlinig über die Ecke
+      # hinaus verlängert: dir = -1 ankommender, +1 abgehender Lauf
+      def leg_pt(sd, q, u, dir)
+        poly = sd[:poly]
+        tg = poly.tangent(q[:u] + dir * 0.01)
+        nrm = sd[:side] > 0 ? Geo.right(tg) : Geo.left(tg)
+        c = Geo.add(poly.at(q[:u]), Geo.mul(nrm, sd[:off]))
+        Geo.add(c, Geo.mul(tg, u - q[:u]))
+      end
+
+      # Parameter u, an dem die Achse die Pfostenfläche erreicht (dir = +1
+      # Fläche zum folgenden Feld, -1 zum vorigen). An Ecken liegt die
+      # Pfostenmitte im Schnitt der versetzten Achsen – der Wert kann dann auf
+      # der verlängerten Achse des Schenkels hinter der Ecke liegen (leg_pt).
+      def face_u(sd, q, dir)
+        u = q[:u]; hs = q[:s] / 2.0
+        return u + dir * hs unless q[:role] == :ecke
+        tg = sd[:poly].tangent(u + dir * 0.01)
+        ax = q[:tg]; ay = Geo.left(ax)
+        dface = hs / [Geo.dot(tg, ax).abs, Geo.dot(tg, ay).abs, 0.3].max
+        u + dir * dface - Geo.dot(Geo.sub(leg_pt(sd, q, u, dir), q[:pt]), tg)
+      end
+
+      # Achsenpunkt eines Felds (an Eckpfosten auf dem verlängerten Schenkel)
+      def span_pt(sd, sp, u)
+        pa = sp[:pa]; pb = sp[:pb]
+        return leg_pt(sd, pa, u, 1) if pa && pa[:role] == :ecke && u <= pa[:u] + 0.01
+        return leg_pt(sd, pb, u, -1) if pb && pb[:role] == :ecke && u >= pb[:u] - 0.01
+        axis_pt(sd, u)
+      end
+
+      # liegt der Punkt (mit Abstand clr) im Querschnitt eines Pfostens?
+      def in_post?(list, pt, clr)
+        list.any? do |q|
+          d = Geo.sub(pt, q[:pt]); ax = q[:tg]; ay = Geo.left(ax); h = q[:s] / 2.0 + clr
+          Geo.dot(d, ax).abs < h && Geo.dot(d, ay).abs < h
+        end
+      end
+
+      # Handlauf-Unterkante an u (höchster Wert im Bereich u ± r)
+      def rail_bot_max(sd, p, u, r)
+        [u - r, u, u + r].map { |x| rail_top(sd, x) }.max - p['rail_hh']
       end
 
       # Oberkante Handlauf an u (Feld, in dem u liegt; sonst Stufenkanten)
@@ -197,6 +266,15 @@ module JTools
         end.min
       end
 
+      # Unterkante der aufgesattelten Wange am Austritt (Ende des letzten
+      # Bretts, dort stößt sie an den Austrittspfosten)
+      def sattel_bot_end(plan, p, which)
+        b = Stringers.compute(plan, p)[:sattel].select { |x| x[:which] == which }.max_by { |x| x[:nr] }
+        return nil unless b
+        zs = b[:poly].select { |x, _| x >= b[:len] - 0.01 }.map(&:last)
+        zs.empty? ? nil : [zs.min, 0.0].max
+      end
+
       def wange_top(plan, p, which, u)
         Stringers.top_at(plan, p, which, u)
       end
@@ -211,11 +289,12 @@ module JTools
         s = p['newel_s']
         poly = plan.send(which)
         keys ||= plan.keys_for(which)
-        wange = Params.side_kind(p, which, plan.outer_side, !plan.spiral.nil?) == 'wange' if wange.nil?
+        wange = %w[wange sattel].include?(Params.side_kind(p, which, plan.outer_side, !plan.spiral.nil?)) if wange.nil?
         u0 = keys[0]; u1 = keys[-1]
         list = []
-        # Antritt / Austritt: bei Wangen innerhalb der Wange (Wange stößt an den
-        # Pfosten), sonst vor der ersten bzw. hinter der letzten Stufenkante
+        # Antritt / Austritt: bei Wangen (eingestemmt, aufgesattelt) innerhalb
+        # der Treppe (Wange stößt an den Pfosten), sonst vor der ersten bzw.
+        # hinter der letzten Stufenkante
         list << { u: wange ? u0 + s / 2.0 : u0 - s / 2.0, role: :antritt }
         list << { u: wange ? u1 - s / 2.0 : u1 + s / 2.0, role: :austritt }
         unless plan.spiral
@@ -232,19 +311,12 @@ module JTools
       end
 
       def posts(plan, p, sd)
-        s = p['newel_s']
-        keys = sd[:keys]; poly = sd[:poly]
+        keys = sd[:keys]
         wange = sd[:mount] == :wange
         list = sd[:posts]
+        sattel = Params.side_kind(p, sd[:which], plan.outer_side, !plan.spiral.nil?) == 'sattel'
         list.each_with_index do |q, i|
           u = q[:u]
-          q[:s] = s
-          q[:pt] = axis_pt(sd, u)
-          q[:tg] = poly.tangent([[u, 0.01].max, poly.length - 0.01].min)
-          if q[:role] == :ecke
-            # an der Ecke nach dem ankommenden Lauf ausgerichtet
-            q[:tg] = poly.tangent(u - 0.01)
-          end
           # über die Oberkante der anschließenden Handläufe
           zr = []
           zr << sd[:spans][i - 1][:f].(sd[:spans][i - 1][:ub]) if i > 0 && sd[:spans][i - 1]
@@ -255,7 +327,7 @@ module JTools
                      elsif q[:role] == :antritt
                        0.0
                      elsif q[:role] == :austritt
-                       plan.H
+                       sattel ? (sattel_bot_end(plan, p, sd[:which]) || plan.H) : plan.H
                      else
                        tread_top(plan, keys, u)
                      end
@@ -268,36 +340,74 @@ module JTools
       def bars(plan, p, sd, warnings)
         shape, d = Params.bar_size(p)
         gap = p['bal_gap']
-        return [] if d <= 0 || gap <= 0
-        posts = sd[:posts]
+        d = 0.0 if gap <= 0
+        s = p['newel_s']
+        mid_len = p['rail_mid'].to_f
+        lw = plan.lines_w
+        sd[:tb] = (0..plan.treads).map { |k| axis_u(plan, sd, lw[k]) }
+        sd[:mids] = []
         out = []
         maxgap = 0.0
-        posts.each_cons(2) do |pa, pb|
-          ua = pa[:u] + pa[:s] / 2.0
-          ub = pb[:u] - pb[:s] / 2.0
+        sd[:spans].each do |sp|
+          ua = sp[:ua]; ub = sp[:ub]
           next if ub - ua < 0.5
-          us = if sd[:mount] == :wange
-                 span_even(ua, ub, d, gap)
-               else
-                 span_treads(plan, p, sd, ua, ub)
-               end
-          # größter lichter Abstand in diesem Feld (Pfosten – Stäbe – Pfosten)
-          edges = [ua] + us.flat_map { |u, _k| [u - d / 2.0, u + d / 2.0] } + [ub]
-          edges.each_slice(2) { |a, b| maxgap = [maxgap, b - a].max if b }
+          us = d > 0 ? span_treads(plan, p, sd, ua, ub) : []
+          us.reject! { |u, _k| in_post?(sd[:posts], axis_pt(sd, u), d / 2.0 + 0.5) }
+          # Zwischenpfosten in der Mitte (an der Stelle des mittleren Stabs)
+          if mid_len > 0 && ub - ua > mid_len + 1e-6
+            um = (ua + ub) / 2.0
+            c = us.min_by { |u, _k| (u - um).abs }
+            c = nil if c && (c[0] - um).abs > [ub - ua, 0.0].max / 4.0
+            mu = c ? c[0] : um
+            mk = c ? c[1] : tread_at(sd, mu)
+            sd[:mids] << mid_post(plan, p, sd, mu, mk, s)
+            us.reject! { |u, _k| (u - mu).abs < s / 2.0 + d / 2.0 + 0.5 }
+          end
+          # Lücken neben Pfosten über bal_gap auffüllen
+          if d > 0
+            blocks = lambda do
+              ([[ua - 1.0, ua]] + sd[:mids].select { |q| q[:u] > ua && q[:u] < ub }.map { |q| [q[:u] - s / 2.0, q[:u] + s / 2.0] } +
+               us.map { |u, _k| [u - d / 2.0, u + d / 2.0] } + [[ub, ub + 1.0]]).sort_by(&:first)
+            end
+            blocks.().each_cons(2) do |(_, ha), (lb, _)|
+              free = lb - ha
+              next unless free > gap + 0.05
+              span_even(ha, lb, d, gap).each do |u, _|
+                k = tread_at(sd, u)
+                ok = if sd[:mount] == :wange
+                       wange_top(plan, p, sd[:which], u)
+                     else
+                       e = p['bal_edge']
+                       k && u - d / 2.0 - sd[:tb][k] >= e - 1e-6 && sd[:tb][k + 1] - u - d / 2.0 >= e - 1e-6
+                     end
+                us << [u, k] if ok && !in_post?(sd[:posts], axis_pt(sd, u), d / 2.0 + 0.5)
+              end
+            end
+            us.sort_by!(&:first)
+            # größter lichter Abstand in diesem Feld (Pfosten – Stäbe – Pfosten)
+            blocks.().each_cons(2) { |(_, ha), (lb, _)| maxgap = [maxgap, lb - ha].max }
+          end
           us.each do |u, k|
-            bar = { u: u, pt: axis_pt(sd, u), tg: sd[:poly].tangent(u), d: d, shape: shape, tread: k, ztop: rail_top(sd, u) - p['rail_hh'] }
+            bar = { u: u, pt: axis_pt(sd, u), tg: sd[:poly].tangent(u), d: d, shape: shape, tread: k }
             if sd[:mount] == :wange
               zt = wange_top(plan, p, sd[:which], u) || (rail_z(sd, u) - p['rail_h'] + p['str_over'])
               bar[:zbot] = zt - p['bal_depth']
               bar[:drill] = { u: u, z: zt, depth: p['bal_depth'], d: d }
             else
+              next unless k
               zt = (k + 1) * plan.h
               dep = [p['bal_depth'], [p['tread_t'] - 1.0, 0.0].max].min
               dep = 0.0 if p['construction'] == 'massiv'
               bar[:zbot] = zt - dep
               bar[:drill] = { u: u, z: zt, depth: dep, d: d } if dep > 0
             end
-            next if bar[:ztop] - zt < 5.0
+            # oben lotrecht in den Handlauf gebohrt
+            zr = rail_top(sd, u) - p['rail_hh']
+            rd = [p['bal_depth'], p['rail_hh'] - 1.0].min
+            rd = 0.0 if rd < 0
+            bar[:ztop] = zr + rd
+            bar[:rdrill] = { u: u, z: zr, depth: rd, d: d } if rd > 0
+            next if zr - zt < 5.0
             out << bar
           end
         end
@@ -307,6 +417,28 @@ module JTools
                              sd[:which] == :outer ? 'außen' : 'innen', maxgap, gap)
         end
         out
+      end
+
+      # Stufe (Index), auf der die Stelle u der Achse liegt (nil = keine)
+      def tread_at(sd, u)
+        tb = sd[:tb]
+        (0...tb.size - 1).find { |k| u >= tb[k] - 1e-6 && u <= tb[k + 1] + 1e-6 && tb[k + 1] - tb[k] > 0.05 }
+      end
+
+      # Zwischenpfosten an u: steht auf der Wangenoberkante (eingestemmt) bzw.
+      # auf der Stufe, endet an der Handlauf-Unterkante (Handlauf läuft durch).
+      # Pfostenenden schräg nach der Neigung – hier bis zur höchsten Stelle.
+      def mid_post(plan, p, sd, u, k, s)
+        q = { u: u, role: :mitte }
+        frame(sd, q, s)
+        q[:zbot] = if sd[:mount] == :wange
+                     [u - s / 2.0, u, u + s / 2.0].map { |x| wange_top(plan, p, sd[:which], x) }.compact.min ||
+                       (rail_z(sd, u) - p['rail_h'] + p['str_over'])
+                   else
+                     k ? (k + 1) * plan.h : tread_top(plan, sd[:keys], u)
+                   end
+        q[:ztop] = rail_bot_max(sd, p, u, s / 2.0)
+        q
       end
 
       # Gleichmäßige Teilung zwischen ua und ub: lichter Abstand <= gap
@@ -338,10 +470,11 @@ module JTools
         uf + (-sd[:off]) * Geo.dot(dl, tg) / c
       end
 
-      # Stäbe auf den Stufen: je Stufe m gleiche Felder, Stab in Feldmitte.
+      # Stäbe im Stufenraster: je Stufe m gleiche Felder, Stab in Feldmitte.
       # Rückgabe [[u, stufe], ...]
       def span_treads(plan, p, sd, ua, ub)
-        d = Params.bar_size(p)[1]; gap = p['bal_gap']; e = p['bal_edge']
+        d = Params.bar_size(p)[1]; gap = p['bal_gap']
+        e = sd[:mount] == :wange ? 0.0 : p['bal_edge'] # auf der Wange: kein Stufenrand
         lw = plan.lines_w
         res = []
         (0...plan.treads).each do |k|
@@ -363,25 +496,30 @@ module JTools
 
       # --- Handlauf ---------------------------------------------------------
 
-      # Handlaufstücke von Pfosten zu Pfosten
+      # Handlaufstücke von Pfosten zu Pfosten; Bohrungen für die Stäbe
+      # (lotrecht von unten, Ansatz an der Unterkante in Stabmitte)
       def rails(plan, p, sd)
         curved = p['str_form'] == 'kurve'
         h = p['rail_hh']
         sd[:spans].map do |sp|
           ua = sp[:ua]; ub = sp[:ub]
           next nil if ub - ua < 1.0
+          # Zwischenpunkte nur zwischen den Pfosten (nicht im Eckpfosten)
+          lo = [ua, sp[:pa][:u]].max + 0.01; hi = [ub, sp[:pb][:u]].min - 0.01
           us = [ua]
-          sd[:poly].cum.each { |c| us << c if c > ua + 0.01 && c < ub - 0.01 }
-          sd[:keys].each { |c| us << c if c > ua + 0.01 && c < ub - 0.01 }
+          sd[:poly].cum.each { |c| us << c if c > lo && c < hi }
+          sd[:keys].each { |c| us << c if c > lo && c < hi }
           if curved
             n = [((ub - ua) / 5.0).ceil, 2].max
-            (1...n).each { |i| us << ua + (ub - ua) * i / n }
+            (1...n).each { |i| u = ua + (ub - ua) * i / n; us << u if u > lo && u < hi }
           end
           us << ub
           us = us.sort.uniq { |u| (u * 100).round }
           tops = us.map { |u| sp[:f].(u) }
+          drills = sd[:bars].select { |b| b[:rdrill] && b[:u] > ua && b[:u] < ub }
+                            .map { |b| b[:rdrill].merge(pt: b[:pt]) }
           { ua: ua, ub: ub, w: sd[:rw], h: h, curved: curved, us: us,
-            pts: us.map { |u| axis_pt(sd, u) }, tops: tops, bots: tops.map { |z| z - h } }
+            pts: us.map { |u| span_pt(sd, sp, u) }, tops: tops, bots: tops.map { |z| z - h }, drills: drills }
         end.compact
       end
     end
