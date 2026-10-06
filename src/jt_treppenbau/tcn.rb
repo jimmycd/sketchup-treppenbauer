@@ -4,8 +4,16 @@
 #   * Gravur Teilenummern – Werkzeug und Tiefe direkt im Block (keine r-Variablen)
 #   * Nuten (Einstand)    – Nutfräser, exakte Ausstemmungskontur, konzentrisch
 #                           ausgeräumt (innen -> außen, letzte Bahn = Kontur)
+#   * Bohrungen Stufen    – Geländerstäbe, lotrecht von oben (W#81), vor der
+#                           Außenkontur
 #   * Außenkonturen       – gewählter Fräser, durchgefräst, Korrektur außen,
-#                           kleine Teile zuerst, immer zuletzt
+#                           kleine Teile zuerst
+#   * Bohrungen Wangen    – eingestemmte Wange: Bohrung in die Oberkante, in
+#                           der Plattenebene schräg zur Kante (Treppen-Senkrechte).
+#                           Nach der Außenkontur mit dem Bohraggregat (waagerecht,
+#                           je Bohrung eine Hilfsfläche GSIDE#7…, wie bei den
+#                           aufgesattelten Wangen) oder nur als Gravur markiert.
+#   TpaCAD-Prüfung offen: Bohrmakro W#81 (::WT2, #1002 = Ø), Hilfsflächen.
 
 module JTools
   module Treppenbau
@@ -39,7 +47,9 @@ module JTools
 
       # opts: :length, :width, :thickness, :tool_outer, :overcut, :climb,
       #       :deco_tool, :deco_depth, :engrave, :text_h,
-      #       :pocket_tool, :pocket_d, :comment
+      #       :pocket_tool, :pocket_d, :comment,
+      #       :drill_tool, :hdrill_tool (0 = nach Ø), :drill_wange ('bohren' | 'markieren'),
+      #       :drill_clear (Anfahrabstand waagerechte Bohrung, mm)
       def write(path, placements, opts)
         File.open(path, 'wb') do |io|
           text = build(placements, opts).join("\r\n") + "\r\n"
@@ -50,9 +60,13 @@ module JTools
 
       def build(placements, opts)
         ds = opts[:thickness].to_f
+        vdr = placements.flat_map { |pl| (pl.drills || []).reject { |h| h[:ang] } }
+        hdr = placements.flat_map { |pl| (pl.drills || []).select { |h| h[:ang] } }
+        mark_h = opts[:drill_wange].to_s == 'markieren'
+        faces = mark_h ? [] : hdr.map { |h| drill_face(h, ds, opts[:drill_clear].to_f) }
         out = []
         out << 'TPA\\ALBATROS\\EDICAD\\02.00:1224:r0w0h0s1'
-        out << '::SIDE=1;'
+        out << "::SIDE=1;#{faces.each_index.map { |i| "#{7 + i};" }.join}"
         out << "::UNm DL=#{n(opts[:length])} DH=#{n(opts[:width])} DS=#{n(ds)}"
         out << "'tcn version=2.6.14"
         out << "'code=ansi"
@@ -67,7 +81,17 @@ module JTools
         out << 'OPTI{'
         out << ':: OPTDEF=1 OPTIMIZE=%;0 OPTMIN=0 OPT3=0 OPT0=0 OPTTOOL=0 OPT2=0 OPTX=0 OPTY=0 OPTR=0 ' \
                'OPT4=0 OPT6=0 OPT7=0 LSTCOD=0%1%2%3 LTOOLFR=0 LTOOLPN=0 OPTF1=0 OOO=0.5'
-        out << '}OPTI' << 'LINK{' << '}LINK' << 'SIDE#0{' << '}SIDE'
+        out << '}OPTI' << 'LINK{' << '}LINK'
+        unless faces.empty?
+          out << 'GEO{' << "::NF=#{faces.size}"
+          faces.each_with_index do |fc, i|
+            out << "GSIDE##{7 + i}{"
+            fc[:corners].each_with_index { |c, k| out << "##{k + 1}=#{n(c[0])}|#{n(c[1])}|#{n(c[2])}" }
+            out << "#Z=#{n(fc[:depth_z])}" << '}GSIDE'
+          end
+          out << '}GEO'
+        end
+        out << 'SIDE#0{' << '}SIDE'
         out << 'SIDE#1{'
 
         ws = 0
@@ -96,7 +120,22 @@ module JTools
             lines(path).each { |l| out << l }
           end
         end
-        # 3) Außenkonturen – kleine Teile zuerst
+        # Wangenbohrungen nur markiert: Bohrachse von der Kante bis zur Tiefe
+        if mark_h
+          hdr.each do |h|
+            a = [h[:x], h[:y]]
+            b = Geo.add(a, Geo.mul(drill_dir(h), h[:depth]))
+            ws += 1
+            out << setup(ws, a, n(-opts[:deco_depth].to_f.abs), n(opts[:deco_tool]), 0)
+            lines([a, b]).each { |l| out << l }
+          end
+        end
+        # 3) Bohrungen von oben (Trittstufen)
+        vdr.each do |h|
+          ws += 1
+          out << drill(ws, [h[:x], h[:y]], h[:depth], h[:d], opts[:drill_tool])
+        end
+        # 4) Außenkonturen – kleine Teile zuerst
         placements.sort_by { |pl| pl.part.area }.each do |pl|
           loop = orient(pl.poly, opts[:climb] ? :cw : :ccw)
           ws += 1
@@ -106,7 +145,39 @@ module JTools
 
         out << '}SIDE'
         (3..6).each { |s| out << "SIDE##{s}{" << '}SIDE' }
+        # 5) Wangenbohrungen mit dem Bohraggregat (nach der Außenkontur)
+        faces.each_with_index do |fc, i|
+          ws += 1
+          out << "SIDE##{7 + i}{" << '$=Bohrung Gelaenderstab (Aggregat)'
+          out << drill(ws, fc[:pt], fc[:depth], fc[:d], opts[:hdrill_tool])
+          out << '}SIDE'
+        end
         out
+      end
+
+      # Bohrrichtung (in das Teil) aus dem Winkel in der Plattenebene
+      def drill_dir(h)
+        a = h[:ang].to_f * Math::PI / 180.0
+        [Math.cos(a), Math.sin(a)]
+      end
+
+      # Hilfsfläche für eine waagerechte Bohrung: steht senkrecht auf der Platte,
+      # Normale = Gegenrichtung der Bohrung, im Abstand clr vor dem Ansatzpunkt.
+      # Flächen-Koordinaten: X quer (rechtshändig X × Y = Normale), Y = Plattendicke.
+      def drill_face(h, t, clr)
+        dv = drill_dir(h)
+        nv = Geo.mul(dv, -1.0)
+        xvec = [-nv[1], nv[0]]
+        org = Geo.sub(Geo.add([h[:x], h[:y]], Geo.mul(nv, clr)), Geo.mul(xvec, 100.0))
+        corners = [[org[0], org[1], 0.0], [org[0] + xvec[0] * 200.0, org[1] + xvec[1] * 200.0, 0.0], [org[0], org[1], t]]
+        { corners: corners, depth_z: clr + h[:depth] + 50.0, pt: [100.0, t / 2.0], depth: clr + h[:depth], d: h[:d] }
+      end
+
+      # Bohrung (W#81): Tiefe positiv in mm, Werkzeug 0 = Auswahl nach Durchmesser
+      def drill(ws, pt, depth, d, tool)
+        tl = tool.to_i > 0 ? " #205=#{tool.to_i}" : ''
+        "W#81{ ::WT2 WS=#{ws}  #8015=0 #1=#{n(pt[0])} #2=#{n(pt[1])} #3=#{n(-depth.to_f.abs)} " \
+          "#1002=#{n(d)} #201=1 #203=1#{tl} #1001=0 #9505=0 }W"
       end
 
       # Ein Programm einer aufgesattelten Wange (Wange3d::Prog) – Rohling je Wange.

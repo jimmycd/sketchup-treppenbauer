@@ -74,6 +74,11 @@ module JTools
         if p['rail'] != 'keins'
           if opts[:posts]
             parts.concat(posts(plan, p))
+            rb = round_bars(plan, p)
+            unless rb.empty?
+              warnings << format('Runde Geländerstäbe werden nicht aus der Platte gefräst: %d Stück Ø %s mm, Längen %s mm (Zuschnitt vom Rundstab).',
+                                 rb.size, format('%g', (rb[0][:d] * MM).round(1)).tr('.', ','), rb.map { |q| (q[:ztop] - q[:zbot]) * MM }.minmax.map(&:round).uniq.join('–'))
+            end
           end
           if opts[:rail]
             rp, rw = rails(plan, p)
@@ -342,12 +347,19 @@ module JTools
           end
           sd[:bars].each do |q|
             ln = q[:ztop] - q[:zbot]
-            next if ln < 2
+            next if ln < 2 || q[:shape] == 'rund'
             res << Part.new(:bar, "ST#{res.count { |x| x.kind == :bar } + 1}", q[:d] * MM, rect(ln * MM, q[:d] * MM), [], 0.0,
                             "Geländerstab #{nm}")
           end
         end
         res
+      end
+
+      # Runde Geländerstäbe (kein Plattenteil, nur Zuschnittliste)
+      def round_bars(plan, p)
+        Railing.compute(plan, p)[:sides].flat_map do |sd|
+          sd[:bars].select { |q| q[:shape] == 'rund' && q[:ztop] - q[:zbot] >= 2 }
+        end
       end
 
       # Handlauf je Feld als Platte (Dicke = Handlaufbreite), Umriss in der

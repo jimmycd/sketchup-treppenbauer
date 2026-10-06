@@ -11,7 +11,7 @@
 module JTools
   module Treppenbau
     class Nester
-      Placement = Struct.new(:part, :rot, :x, :y, :poly, :pockets, :paths)
+      Placement = Struct.new(:part, :rot, :x, :y, :poly, :pockets, :paths, :drills)
       Sheet = Struct.new(:rows, :placements, :maxx, :free, :fails)
 
       attr_reader :plates, :unplaced, :grid
@@ -92,16 +92,21 @@ module JTools
           poly = part.poly.map { |q| Geo.rot(q, rad) }
           pk = part.pockets.map { |pc| pc.map { |q| Geo.rot(q, rad) } }
           pth = (part.pocket_paths || []).map { |pc| pc.map { |q| Geo.rot(q, rad) } }
+          drl = (part.drills || []).map do |h|
+            q = Geo.rot([h[:x], h[:y]], rad)
+            h.merge(x: q[0], y: q[1], ang: h[:ang] && ((h[:ang] + deg + 180.0) % 360.0 - 180.0).round(2))
+          end
           minx = poly.map(&:first).min; miny = poly.map(&:last).min
           poly = poly.map { |q| [q[0] - minx, q[1] - miny] }
           pk = pk.map { |pc| pc.map { |q| [q[0] - minx, q[1] - miny] } }
           pth = pth.map { |pc| pc.map { |q| [q[0] - minx, q[1] - miny] } }
+          drl = drl.map { |h| h.merge(x: h[:x] - minx, y: h[:y] - miny) }
           mask = rasterize(poly)
           next if mask.nil?
           key = mask[:rows].hash
           next if seen[key]
           seen[key] = true
-          out << { deg: deg, poly: poly, pockets: pk, paths: pth, mask: mask }
+          out << { deg: deg, poly: poly, pockets: pk, paths: pth, drills: drl, mask: mask }
         end
         out
       end
@@ -176,7 +181,8 @@ module JTools
         poly = v[:poly].map { |q| [q[0] + ox, q[1] + oy] }
         pk = v[:pockets].map { |pc| pc.map { |q| [q[0] + ox, q[1] + oy] } }
         pth = v[:paths].map { |pc| pc.map { |q| [q[0] + ox, q[1] + oy] } }
-        sheet.placements << Placement.new(part, v[:deg], ox, oy, poly, pk, pth)
+        drl = v[:drills].map { |h| h.merge(x: h[:x] + ox, y: h[:y] + oy) }
+        sheet.placements << Placement.new(part, v[:deg], ox, oy, poly, pk, pth, drl)
         sheet.maxx = [sheet.maxx, poly.map(&:first).max + @margin].max
         true
       end

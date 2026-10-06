@@ -300,7 +300,8 @@ module JTools
           end
           sd[:bars].each do |q|
             next if q[:ztop] - q[:zbot] < 2
-            g = prism(grp.entities, square(q[:pt], q[:tg], q[:d]), q[:ztop], q[:zbot], m)
+            sec = q[:shape] == 'rund' ? circle(q[:pt], q[:d] / 2.0, 16) : square(q[:pt], q[:tg], q[:d])
+            g = prism(grp.entities, sec, q[:ztop], q[:zbot], m)
             g.name = "Stab #{nm}" if g
           end
         end

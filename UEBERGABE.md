@@ -35,6 +35,18 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
 
+## Version 2.10.0 (Branch `claude/gelaenderstaebe-rund-quadratisch-efegi4`) – Geländerstäbe rund oder quadratisch, Bohrungen im TCN
+- **Neue Parameter:** `bal_shape` „Stabform“ (`quadrat` | `rund`, Standard `quadrat` → alte Treppen unverändert), `bal_d` heißt jetzt „Stab: Kantenlänge“ (nur quadratisch), neu `bal_dia` „Stab: Durchmesser“ (2,5 cm, nur rund). `Params.bar_size(p)` liefert Form und Maß; Stab-Hash in `Railing` hat `shape:`.
+- **3D:** runde Stäbe als 16-Eck (`Builder#circle`), quadratische wie bisher.
+- **Bohrung Ø = Durchmesser bzw. Kantenlänge** (quadratische Stäbe brauchen am Ende einen runden Zapfen). Runde Stäbe sind kein Plattenteil mehr, Hinweis mit Anzahl, Ø und Längen (Zuschnitt vom Rundstab).
+- **TCN (`tcn.rb#build`):** Bohrungen werden beim Verschachteln mitgedreht (`Placement#drills`).
+  - Trittstufen (aufgesattelte Wange, frei, Holm): Bohrung von oben `W#81` auf Seite 1 vor der Außenkontur.
+  - Eingestemmte Wange: Bohrung in die Oberkante, in der Plattenebene schräg zur Kante. CNC-Option `drill_wange`: `bohren` = Bohraggregat nach der Außenkontur, je Bohrung eine Hilfsfläche `GSIDE#7…` (Konvention wie `Wange3d#aggregate`, Anfahrabstand `drill_clear`); `markieren` = Gravur der Bohrachse von der Kante bis zur Tiefe (Handbohrung). Hinweis im Dialog: vor der Oberkante muss Platz für das Aggregat sein.
+  - Neue CNC-Optionen `drill_tool` (von oben), `hdrill_tool` (Aggregat), jeweils 0 = Werkzeug nach Durchmesser (`#205` entfällt).
+- **Plattenvorschau:** Bohrungen rot (Kreis Ø; bei Wangen zusätzlich die Bohrachse).
+- **TpaCAD ungeprüft:** Bohrmakro `W#81{ ::WT2 … #1002=Ø }W`, Bohrung auf Hilfsflächen, Platzbedarf des Aggregats auf der verschachtelten Platte.
+- Tests: neu `test/bohrung_test.rb` (4 Formen × 3 Seitenkombinationen × rund/quadratisch × bohren/markieren: Ø, Anzahl der W#81-Blöcke und Hilfsflächen, Bohrung im Teil bzw. Ansatz an der Wangenkante); railing/cnc/tcncheck/build (auch mit runden Stäben)/sattel_cnc/reload ohne Fehler.
+
 ## Version 2.9.0 (Branch `claude/gelaender-pfosten-e1r6fs`, PR #5) – Geländer neu, Wangen stumpf gestoßen (erster Entwurf)
 - **Wangenstöße ohne Gehrung** (`Stringers.butt_joints`/`corner_joint`): L-förmig läuft die von unten kommende Wange durch, die folgende ist um die Wangendicke gekürzt; U-förmig laufen die Wangen der Läufe durch, der Querverbinder ist um beide Dicken gekürzt. Gilt für eingestemmte und aufgesattelte Wangen (Parameter `sat_joint` entfällt).
 - **Wangen als Körper aus zwei Flächenumrissen** (`Stringers.wange_faces` + `Builder#lprism`): Ober-/Unterseite stehen rechtwinklig zur Brettfläche, keine verwundenen Flächen – auch das geschwungene Mittelstück ist ohne 5-Achs-Bearbeitung fräsbar.
@@ -45,7 +57,7 @@ Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`
 - **Handlauf** rechteckig von Pfosten zu Pfosten: Breite = Wangendicke (`str_t` bzw. `sat_t`, ohne Wange `rail_d`), Höhe `rail_hh` (8 cm), Oberkante `rail_h` über den Stufenkanten. Wangenform „gerade“: je Feld die niedrigste Gerade über allen Stufenkanten; „geschwungen“: knickfreie Kurve (pchip) – CNC-Teil ist dann eine aus dem Vollen gefräste Platte mit gebogenem Umriss (Dicke = Handlaufbreite). Im Grundriss gebogene Handläufe (Wendeltreppe) werden nicht exportiert.
 - Neue Parameter: `rail_hh` (8 cm), `newel_s` (9 cm), `bal_d` (2,5 cm), `bal_gap` (12 cm), `bal_edge` (3 cm), `bal_depth` (3 cm); `post_every`/`post_s` entfallen.
 - Tests: `test/railing_test.rb` (neu), `stringer_test`/`sattel_*` auf stumpfe Stöße umgestellt.
-- Offen: Bohrungen noch nicht im TCN-Export/Plattenvorschau; Stufen am Pfosten nicht ausgeklinkt; U mit Treppenauge innen zwei Eckpfosten; aufgesattelte Wange, dreiläufig mit Podest und Setzstufen: am inneren U-Stoß ragt das durchlaufende Podestbrett in die letzte Stufe des Querlaufs (`sattel_stufen_test`, 4 Fälle).
+- Offen: ~~Bohrungen noch nicht im TCN-Export/Plattenvorschau~~ (2.10.0); Stufen am Pfosten nicht ausgeklinkt; U mit Treppenauge innen zwei Eckpfosten; aufgesattelte Wange, dreiläufig mit Podest und Setzstufen: am inneren U-Stoß ragt das durchlaufende Podestbrett in die letzte Stufe des Querlaufs (`sattel_stufen_test`, 4 Fälle).
 
 ## Version 2.8.0 (Branch `drachenstufe`) – Drachenstufe darf außermittig liegen, Schenkel innen ≥ 2 cm
 Vorgabe Jürgen (05.10.2026): Die Drachenstufe muss nicht halb/halb auf der Ecke liegen, aber an der Innenseite muss der kleinere Schenkel mindestens 2 cm lang sein.

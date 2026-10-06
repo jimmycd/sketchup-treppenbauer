@@ -12,7 +12,8 @@
 #     niedrigste über allen Stufenkanten), „geschwungen“: knickfreie Kurve
 #     durch die Stufenkanten (wie die Wange) – dann wird der Handlauf als
 #     Platte aus dem Vollen gefräst (Teil mit gekrümmtem Umriss).
-#   * Stäbe zwischen den Pfosten, lichter Abstand höchstens bal_gap:
+#   * Stäbe zwischen den Pfosten, lichter Abstand höchstens bal_gap; quadratisch
+#     (Kantenlänge bal_d) oder rund (Durchmesser bal_dia), Bohrung Ø = Stabmaß:
 #       eingestemmte Wange – jeder Stab steht lotrecht auf der Wangenoberkante
 #         und ist um bal_depth eingelassen (lotrechte Bohrung, d. h. schräg zur
 #         Wangenkante); gleichmäßig zwischen den Pfosten verteilt.
@@ -52,8 +53,9 @@ module JTools
       #     { ua:, ub:, w:, h:, curved:, us: [...], pts: [[x, y], ...] (Achse),
       #       tops: [...], bots: [...] }
       #   Pfosten: { u:, pt:, tg:, s:, zbot:, ztop:, role: :antritt | :austritt | :ecke | :podest }
-      #   Stab:    { u:, pt:, tg:, d:, zbot:, ztop:, tread: k | nil,
-      #              drill: { u:, z:, depth:, d: } }   (Bohrung in Wange bzw. Stufe)
+      #   Stab:    { u:, pt:, tg:, d:, shape: 'rund' | 'quadrat', zbot:, ztop:, tread: k | nil,
+      #              drill: { u:, z:, depth:, d: } }   (Bohrung in Wange bzw. Stufe,
+      #              Ø = Durchmesser bzw. Kantenlänge)
       def compute(plan, p)
         cache = plan.instance_variable_get(:@railing)
         return cache if cache
@@ -264,7 +266,8 @@ module JTools
       # --- Stäbe ------------------------------------------------------------
 
       def bars(plan, p, sd, warnings)
-        d = p['bal_d']; gap = p['bal_gap']
+        shape, d = Params.bar_size(p)
+        gap = p['bal_gap']
         return [] if d <= 0 || gap <= 0
         posts = sd[:posts]
         out = []
@@ -282,7 +285,7 @@ module JTools
           edges = [ua] + us.flat_map { |u, _k| [u - d / 2.0, u + d / 2.0] } + [ub]
           edges.each_slice(2) { |a, b| maxgap = [maxgap, b - a].max if b }
           us.each do |u, k|
-            bar = { u: u, pt: axis_pt(sd, u), tg: sd[:poly].tangent(u), d: d, tread: k, ztop: rail_top(sd, u) - p['rail_hh'] }
+            bar = { u: u, pt: axis_pt(sd, u), tg: sd[:poly].tangent(u), d: d, shape: shape, tread: k, ztop: rail_top(sd, u) - p['rail_hh'] }
             if sd[:mount] == :wange
               zt = wange_top(plan, p, sd[:which], u) || (rail_z(sd, u) - p['rail_h'] + p['str_over'])
               bar[:zbot] = zt - p['bal_depth']
@@ -338,7 +341,7 @@ module JTools
       # Stäbe auf den Stufen: je Stufe m gleiche Felder, Stab in Feldmitte.
       # Rückgabe [[u, stufe], ...]
       def span_treads(plan, p, sd, ua, ub)
-        d = p['bal_d']; gap = p['bal_gap']; e = p['bal_edge']
+        d = Params.bar_size(p)[1]; gap = p['bal_gap']; e = p['bal_edge']
         lw = plan.lines_w
         res = []
         (0...plan.treads).each do |k|

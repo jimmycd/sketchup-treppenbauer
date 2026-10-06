@@ -104,6 +104,7 @@ module JTools
           risers: p['risers'],
           rail: p['rail'],
           sattel: p['construction'] == 'wange' && [p['side_left'], p['side_right']].include?('sattel'),
+          wbore: p['construction'] == 'wange' && p['rail'] != 'keins' && [p['side_left'], p['side_right']].include?('wange'),
           tpacad: Sketchup.read_default(DXF4TCN, 'tpacad_exe', '').to_s
         }
         js("CNC.init(#{JSON.generate(data)})")

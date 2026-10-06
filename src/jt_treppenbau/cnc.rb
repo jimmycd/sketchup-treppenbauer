@@ -51,7 +51,12 @@ module JTools
         'agg_len'     => 167.0,   # nutzbare Länge (mm)
         'agg_clear'   => 5.0,     # Freiraum Aggregat über dem Material (mm)
         'agg_step'    => 50.0,    # Zustellung entlang der Achse (mm)
-        'blank_margin' => 15.0    # Rohling: Zugabe ringsum (mm)
+        'blank_margin' => 15.0,   # Rohling: Zugabe ringsum (mm)
+        # Bohrungen Geländerstäbe (Ø = Stabmaß)
+        'drill_tool'  => 0,       # Bohrer von oben (Trittstufen), 0 = nach Durchmesser
+        'drill_wange' => 'bohren', # eingestemmte Wange: 'bohren' (Aggregat) oder nur 'markieren'
+        'hdrill_tool' => 0,       # Bohraggregat waagerecht, 0 = nach Durchmesser
+        'drill_clear' => 5.0      # Anfahrabstand vor der Wangenkante (mm)
       }.freeze
 
       Result = Struct.new(:sheets, :unplaced, :warnings, :parts, :boards)
@@ -125,6 +130,12 @@ module JTools
           warnings << 'Einzelheiten zur Nacharbeit: Datei …_Wangen_Nacharbeit.txt beim Export.' if boards.any? { |b| !b.notes.empty? }
           o['sat_mode'] = 'fraesen' unless %w[fraesen markieren].include?(o['sat_mode'])
         end
+        o['drill_wange'] = 'bohren' unless %w[bohren markieren].include?(o['drill_wange'])
+        nh = parts.sum { |pt| pt.drills.count { |h| h[:ang] } }
+        if nh > 0 && o['drill_wange'] == 'bohren'
+          warnings << "#{nh} Bohrungen für Geländerstäbe in der Wangenoberkante (Bohraggregat, nach der Außenkontur): " \
+                      'vor der Oberkante muss Platz für das Aggregat sein – Teileabstand prüfen oder „nur markieren“ wählen.'
+        end
         (boards || []).each do |b|
           w = depth_warning("Wange #{b.label} (#{fmt(b.t)} mm)", outer_tool(o, b.t))
           warnings << w if w
@@ -179,7 +190,9 @@ module JTools
                     tool_outer: sh.tool[:nr], overcut: o['overcut'], climb: o['climb'],
                     deco_tool: o['deco_tool'], deco_depth: o['deco_depth'],
                     engrave: o['engrave'], text_h: o['text_h'],
-                    pocket_tool: o['pocket_tool'], pocket_d: o['pocket_d'])
+                    pocket_tool: o['pocket_tool'], pocket_d: o['pocket_d'],
+                    drill_tool: o['drill_tool'], hdrill_tool: o['hdrill_tool'],
+                    drill_wange: o['drill_wange'], drill_clear: o['drill_clear'])
           files << path
         end
         bfiles = {}
@@ -244,7 +257,8 @@ module JTools
               parts: sh.placements.map do |pl|
                 { label: pl.part.label, kind: pl.part.kind.to_s, info: pl.part.info,
                   poly: pl.poly.map { |q| q.map { |v| v.round(1) } },
-                  pockets: pl.pockets.map { |pc| pc.map { |q| q.map { |v| v.round(1) } } } }
+                  pockets: pl.pockets.map { |pc| pc.map { |q| q.map { |v| v.round(1) } } },
+                  drills: (pl.drills || []).map { |h| [h[:x].round(1), h[:y].round(1), h[:d].round(1), h[:depth].round(1), h[:ang]] } }
               end
             }
           end,
@@ -280,6 +294,12 @@ module JTools
         by_t = res.sheets.group_by(&:thickness).map do |t, ss|
           area = ss.map { |s| s.placements.map { |pl| pl.part.area }.sum }.sum
           ["Platten #{fmt(t)} mm", ss.size, format('%.0f %% Ausnutzung', 100.0 * area / (ss.size * o['plate_l'] * o['plate_w']))]
+        end
+        dr = res.parts.flat_map(&:drills)
+        unless dr.empty?
+          rows << ['Bohrungen Geländerstäbe', dr.size,
+                   dr.map { |h| "Ø #{fmt(h[:d])}" }.uniq.join(' / ') + ' mm' +
+                   (dr.any? { |h| h[:ang] } ? (o['drill_wange'] == 'markieren' ? ', Wange markiert' : ', Wange mit Aggregat') : '')]
         end
         bs = res.boards || []
         unless bs.empty?

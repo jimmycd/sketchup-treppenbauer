@@ -201,8 +201,13 @@ module JTools
         { key: 'rail_d', label: 'Handlaufbreite (Seiten ohne Wange)', type: 'number', default: 4.5, unit: 'cm', group: 'Geländer', min: 2, step: 0.5 },
         { key: 'newel_s', label: 'Pfostenquerschnitt (Antritt, Austritt, Laufwechsel)', type: 'number', default: 9.0, unit: 'cm', group: 'Geländer', min: 2, step: 0.5,
           help: 'Pfosten stehen am Antritt, am Austritt und an jedem Laufwechsel (Ecke bzw. Zwischenpodest). Der Handlauf läuft von Pfosten zu Pfosten.' },
-        { key: 'bal_d', label: 'Stabquerschnitt', type: 'number', default: 2.5, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
-          help: '0 = keine Stäbe.' },
+        { key: 'bal_shape', label: 'Stabform', type: 'select', default: 'quadrat', group: 'Geländer',
+          options: [['quadrat', 'quadratisch'], ['rund', 'rund']],
+          help: 'Bohrung für die Stäbe (Wange bzw. Trittstufe): Ø = Durchmesser bzw. Kantenlänge – quadratische Stäbe brauchen am Ende einen runden Zapfen.' },
+        { key: 'bal_d', label: 'Stab: Kantenlänge', type: 'number', default: 2.5, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
+          help: 'Quadratische Stäbe. 0 = keine Stäbe.' },
+        { key: 'bal_dia', label: 'Stab: Durchmesser', type: 'number', default: 2.5, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
+          help: 'Runde Stäbe. 0 = keine Stäbe.' },
         { key: 'bal_gap', label: 'Lichter Stababstand (höchstens)', type: 'number', default: 12.0, unit: 'cm', group: 'Geländer', min: 4, step: 0.5,
           help: 'DIN 18065: höchstens 12 cm. Die Stäbe werden zwischen den Pfosten gleichmäßig verteilt.' },
         { key: 'bal_edge', label: 'Stab: Mindestabstand zum Stufenrand', type: 'number', default: 3.0, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
@@ -262,6 +267,11 @@ module JTools
         left_is_outer = outer_side < 0
         left = (which == :outer) == left_is_outer
         p[left ? 'side_left' : 'side_right']
+      end
+
+      # Geländerstab: [Form ('rund' | 'quadrat'), Durchmesser bzw. Kantenlänge (cm)]
+      def self.bar_size(p)
+        p['bal_shape'] == 'rund' ? ['rund', p['bal_dia'].to_f] : ['quadrat', p['bal_d'].to_f]
       end
     end
   end
