@@ -8,7 +8,7 @@ Gearbeitet wird nur im GitHub-Repo `jimmycd/sketchup-treppenbauer` (nicht mehr i
 - `treppenbau_<Version>.rbz` im Hauptordner – aktuell **`treppenbau_2.19.0.rbz`** (Stand `main`), ältere daneben (2.17.0, 2.14.0, 2.12.0, 2.8.0, 2.7.x, 2.6.0). Bauen: `git archive origin/main src`, ohne `jt_aa_treppenbau_dev.rb`, im Ordner `src`: `zip -qrX treppenbau_<Version>.rbz jt_treppenbau.rb jt_treppenbau`.
 - `src/` + `test/` – Quellen und Testskripte (ohne SketchUp lauffähig).
 - `jt_aa_treppenbau_dev.rb` – Entwickler-Loader (lädt aus einem lokalen `src`-Ordner).
-- `Treppenbau-Plugin für SketchUp – Dokumentation.docx` – Anwender-Dokumentation (Stand 2.17.0); `Wie der Treppenbau rechnet – … .docx` – Erklärung der Wendelberechnung.
+- `Treppenbau-Plugin für SketchUp – Dokumentation.docx` – Anwender-Dokumentation (Stand 2.19.0, mit den Abschnitten „Behobene Fehler“, „Konstruktion – warum was wie aufgebaut ist“ und „CNC-Logik“); `Wie der Treppenbau rechnet – … .docx` – Erklärung der Wendelberechnung.
 - `tcn_test/` – Testprogramme Seitenaggregat (A–D, `gen_tests.rb`, `check_tests.py`, README) und Beispiel-Export `E_beispiel_l_wendel/` (alter Ablauf vor 2.7.1).
 - `_to_delete/` – Debug-Plots, kann gelöscht werden.
 
