@@ -35,6 +35,8 @@
 # Koordinaten im abgewickelten Brett: u = Parameter entlang der Begrenzungslinie
 # (cm), z = Höhe (cm).
 
+require_relative 'railing' unless defined?(JTools::Treppenbau::Railing)
+
 module JTools
   module Treppenbau
     module Stringers
@@ -148,6 +150,7 @@ module JTools
         boards = []
         lists = []
         piece_lists = []
+        side_lists = Hash.new { |h, k| h[k] = [] }
         need = 0.0
         %i[outer inner].each do |which|
           next unless kind(plan, p, which) == 'wange'
@@ -215,6 +218,7 @@ module JTools
             end
             piece_boards << list
             piece_lists << list
+            side_lists[which] << list
             boards.concat(list)
           end
           # Pfosten an Innenecken (zwischen den Profilstücken)
@@ -234,7 +238,7 @@ module JTools
           res[:wmin] = ws.min || 0.0
           res[:need] = res[:width]
           res[:newels].each { |nw| nw[:zbot] = [[bot(nw[:a], nw[:a][:u1]), bot(nw[:b], nw[:b][:u0])].min, 0.0].max }
-          piece_lists.each { |list| butt_joints(list, p['str_t'].to_f) }
+          joints(plan, p, res, side_lists)
           return
         end
         # gerade Wange: Unterkante = Parallele im Abstand der Brettbreite zur
@@ -247,7 +251,7 @@ module JTools
         lists.each { |list| straight_bottom(list, width) }
         boards.each { |b| b[:w] = width }
         res[:newels].each { |nw| nw[:zbot] = [[bot(nw[:a], nw[:a][:u1]), bot(nw[:b], nw[:b][:u0])].min, 0.0].max }
-        piece_lists.each { |list| butt_joints(list, p['str_t'].to_f) }
+        joints(plan, p, res, side_lists)
         res[:wange] = boards
         res[:width] = width
         res[:need] = need
@@ -781,6 +785,107 @@ module JTools
         len = Geo.dist(b[:base][0], b[:base][-1])
         base = us.map { |u| Geo.add(b[:base][0], Geo.mul(b[:dir], (u - b[:u0]) * len / (b[:u1] - b[:u0]))) }
         [base, us.map { |u| top(b, u) }, us.map { |u| [bot(b, u), 0.0].max }]
+      end
+
+      # Stöße aller Wangenseiten: auf Geländerseiten sitzen die Pfosten
+      # (Antritt, Austritt, Laufwechsel) als Zwischenstücke zwischen den
+      # Brettern (post_joints), sonst stumpfer Stoß an den Ecken (butt_joints).
+      # Die Eckpfosten an Innenecken entfallen auf Geländerseiten.
+      def joints(plan, p, res, side_lists)
+        t = p['str_t'].to_f
+        posts = p['rail'] == 'keins' ? [] : Railing.sides(plan, p)
+        side_lists.each do |which, lists|
+          if posts.include?(which)
+            post_joints(plan, p, which, lists.flatten(1), t)
+          else
+            lists.each { |list| butt_joints(list, t) }
+          end
+        end
+        res[:newels].reject! { |nw| posts.include?(nw[:which]) }
+      end
+
+      # --- Pfosten als Zwischenstück ---------------------------------------
+      #
+      # bl: alle Bretter einer Seite in Laufrichtung. Lage der Pfosten aus
+      # Railing.post_positions (u = Pfostenmitte auf der Begrenzung, Kante
+      # newel_s). Bretter enden rechtwinklig an der Pfostenfläche:
+      #   Antritt/Austritt – erstes Brett beginnt hinter, letztes endet vor dem Pfosten;
+      #   Ecke   – Pfostenmitte im Schnitt der Wangenmittellinien, beide
+      #            Bretter um je die halbe Pfostenkante zurückgesetzt;
+      #   Podest – (gerades Zwischenpodest) Pfosten an der Podestvorderkante.
+      # Ecken ohne Pfosten bleiben stumpf gestoßen.
+      def post_joints(plan, p, which, bl, t)
+        return if bl.empty?
+        s = p['newel_s'].to_f
+        bl.each { |b| b[:ru0] ||= b[:u0]; b[:ru1] ||= b[:u1] }
+        done = {}
+        Railing.post_positions(plan, p, which).each do |q|
+          u = q[:u]
+          case q[:role]
+          when :antritt
+            b = bl[0]
+            sh = u + s / 2.0 - b[:u0]
+            if sh > 0 && b[:u1] - b[:u0] - sh > 2.0
+              shift_start(b, sh)
+              b[:n0] = nil
+            end
+          when :austritt
+            b = bl[-1]
+            sh = u - s / 2.0 - b[:u1]
+            if sh < 0 && b[:u1] - b[:u0] + sh > 2.0
+              shift_end(b, sh)
+              b[:n1] = nil
+            end
+          when :ecke, :podest
+            corner = q[:role] == :ecke
+            i = (0...bl.size - 1).select do |j|
+              kink = Geo.cross(bl[j][:dir], bl[j + 1][:dir]).abs > KINK || Geo.dot(bl[j][:dir], bl[j + 1][:dir]) < 0
+              kink == corner && !done[j]
+            end.min_by { |j| (bl[j][:ru1] - (corner ? u : u - s / 2.0)).abs }
+            next unless i
+            ok = corner ? post_corner(bl[i], bl[i + 1], t, s) : post_inline(bl[i], bl[i + 1], u, s)
+            done[i] = true if ok
+          end
+        end
+        # verbleibende Ecken (ohne Pfosten): stumpf, unteres Brett gewinnt
+        (0...bl.size - 1).each do |j|
+          next if done[j]
+          corner_joint(bl[j], bl[j + 1], t, :a)
+        end
+      end
+
+      # Pfosten an einer Ecke zwischen Brett a (unten) und b (oben)
+      def post_corner(a, b, t, s)
+        da = a[:dir]; db = b[:dir]; side = a[:side]
+        cr = Geo.cross(da, db)
+        return false if cr.abs <= KINK
+        # Schnitt der Wangenmittellinien = Pfostenmitte
+        pa = Geo.add(a[:base][-1], Geo.mul(seg_n(a, side), t / 2.0))
+        pb = Geo.add(b[:base][0], Geo.mul(seg_n(b, side), t / 2.0))
+        dq = Geo.sub(pb, pa)
+        x = Geo.cross(dq, db) / cr
+        y = Geo.cross(dq, da) / cr
+        sa = x - s / 2.0 # Ende von a (+ = länger)
+        sb = y + s / 2.0 # Anfang von b (+ = kürzer)
+        return false if a[:u1] + sa - a[:u0] < 2.0 || b[:u1] - b[:u0] - sb < 2.0
+        shift_end(a, sa)
+        shift_start(b, sb)
+        a[:n1] = nil
+        b[:n0] = nil
+        true
+      end
+
+      # Pfosten in der Flucht (gerades Zwischenpodest): a endet vor, b beginnt
+      # hinter dem Pfosten
+      def post_inline(a, b, u, s)
+        sa = u - s / 2.0 - a[:u1]
+        sb = u + s / 2.0 - b[:u0]
+        return false if a[:u1] + sa - a[:u0] < 2.0 || b[:u1] - b[:u0] - sb < 2.0
+        shift_end(a, sa)
+        shift_start(b, sb)
+        a[:n1] = nil
+        b[:n0] = nil
+        true
       end
 
       # --- Stöße zwischen Brettern (stumpf, keine Gehrung) ----------------

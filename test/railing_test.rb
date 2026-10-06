@@ -10,7 +10,8 @@ Params::ALL.each do |v|
   [%w[wange wange], %w[sattel sattel], %w[frei frei], %w[wange sattel]].each do |sl, sr|
     %w[rechts links].each do |dir|
       p = Params.normalize(Params.defaults.merge('variant' => v, 'direction' => dir, 'rail' => 'beide',
-                                                 'side_left' => sl, 'side_right' => sr, 'risers' => true))
+                                                 'side_left' => sl, 'side_right' => sr, 'risers' => true,
+                                                 'str_form' => ENV['FORM'] || 'gerade'))
       begin
         plan = Layout.compute(p)
       rescue PlanError => e
@@ -46,6 +47,37 @@ Params::ALL.each do |v|
           sd[:bars].each do |b|
             zt = Stringers.top_at(plan, p, sd[:which], b[:u])
             errs << format('%s: Stab ohne Wange bei u=%.1f', sd[:which], b[:u]) unless zt
+          end
+        end
+        # Pfosten als Zwischenstück: Wangenbretter enden an den Pfostenflächen,
+        # kein Brett ragt in einen Pfosten
+        if sd[:mount] == :wange
+          t = p['str_t']
+          bds = Stringers.compute(plan, p)[:wange].select { |b| b[:which] == sd[:which] }
+          sd[:posts].each do |q|
+            ax = q[:tg]; ay = Geo.left(ax); hs = q[:s] / 2.0
+            inside = lambda do |pt|
+              d = Geo.sub(pt, q[:pt])
+              Geo.dot(d, ax).abs < hs - 0.05 && Geo.dot(d, ay).abs < hs - 0.05
+            end
+            touch = 0
+            bds.each do |b|
+              n = Stringers.seg_n(b, b[:side])
+              [0.02, 0.25, 0.5, 0.75, 0.98].each do |f|
+                [0.1, 0.5, 0.9].each do |g|
+                  pt = Geo.add(Geo.add(b[:base][0], Geo.mul(b[:dir], f * (b[:u1] - b[:u0]))), Geo.mul(n, g * t))
+                  errs << format('%s: Brett ragt in Pfosten %s', sd[:which], q[:role]) if inside.(pt)
+                end
+              end
+              [[b[:u0], b[:base][0]], [b[:u1], b[:base][-1]]].each do |_u, e|
+                c = Geo.add(e, Geo.mul(n, t / 2.0))
+                d = Geo.sub(c, q[:pt])
+                touch += 1 if (Geo.dot(d, ax).abs - hs).abs < 0.05 && Geo.dot(d, ay).abs < hs + 0.05 ||
+                              (Geo.dot(d, ay).abs - hs).abs < 0.05 && Geo.dot(d, ax).abs < hs + 0.05
+              end
+            end
+            need = %i[antritt austritt].include?(q[:role]) ? 1 : 2
+            errs << format('%s: an Pfosten %s enden %d Bretter (erwartet %d)', sd[:which], q[:role], touch, need) if touch != need
           end
         end
         errs << "#{sd[:which]}: Stab über Handlauf" if sd[:bars].any? { |b| b[:ztop] <= b[:zbot] }

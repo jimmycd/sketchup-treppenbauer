@@ -196,10 +196,8 @@ module JTools
           part.info += ", #{part.drills.size} Bohrungen (Geländerstäbe)" unless part.drills.empty?
           res << part
         end
-        rail_sides = p['rail'] == 'keins' ? [] : Railing.sides(plan, p)
+        # Eckpfosten nur auf Seiten ohne Geländer (sonst Geländerpfosten)
         r[:newels].each do |nw|
-          # auf Geländerseiten ersetzt der Geländerpfosten den Eckpfosten
-          next if rail_sides.include?(nw[:which])
           z1 = nw[:ztop] + 10.0
           res << Part.new(:newel, "N#{res.count { |x| x.kind == :newel } + 1}", st * MM,
                           rect((z1 - nw[:zbot]) * MM, st * MM), [], 0.0, 'Eckpfosten Wange')

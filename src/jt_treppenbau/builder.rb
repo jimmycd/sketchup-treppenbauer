@@ -139,10 +139,7 @@ module JTools
           cnt[b[:which]] += 1
           g.name = "Wange #{b[:which] == :outer ? 'außen' : 'innen'} #{cnt[b[:which]]}" if g
         end
-        rail_sides = p['rail'] == 'keins' ? [] : Railing.sides(plan, p)
         r[:newels].each do |nw|
-          # auf Geländerseiten steht dort der Geländerpfosten (Railing)
-          next if rail_sides.include?(nw[:which])
           c = nw[:pt]
           sq = [c, Geo.add(c, Geo.mul(nw[:na], st)),
                 Geo.add(Geo.add(c, Geo.mul(nw[:na], st)), Geo.mul(nw[:nb], st)),

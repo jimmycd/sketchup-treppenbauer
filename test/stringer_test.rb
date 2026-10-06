@@ -20,7 +20,8 @@ Params::NOSPIRAL.each do |v|
         end
         # Mindestabstand unten: dicht abgetastet über jede Stufe
         b[:steps].each do |_k, a, e, zr|
-          (0..20).each { |i| u = a + (e - a) * i / 20.0; minunder = [minunder, zr + under - Stringers.bot(b, u)].min }
+          # nur wo das Brett liegt (vor/hinter einem Pfosten als Zwischenstück gekürzt)
+          (0..20).each { |i| u = a + (e - a) * i / 20.0; next if u < b[:u0] - 1e-6 || u > b[:u1] + 1e-6; minunder = [minunder, zr + under - Stringers.bot(b, u)].min }
         end
         # Trittstufe ganz bedeckt: Oberkante über Stufe k mind. nose_z(k)+over
         if form == 'kurve'
