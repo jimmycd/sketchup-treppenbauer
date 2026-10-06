@@ -1166,6 +1166,30 @@ module JTools
             end
             rb[:joint] = ra
           end
+          # über die Ecke verlängertes Brett (oberes gewinnt): Ausklinkungen im
+          # verlängerten Bereich gehören auch zu den Restbreiten-Ecken
+          recs.each do |r|
+            next unless r[:a] < r[:v0] - 0.01 || r[:b] > r[:v1] + 0.01
+            ext = (corners + corners_r).select do |v, _|
+              (v >= r[:a] - 0.01 && v < r[:v0] - 0.01) || (v > r[:v1] + 0.01 && v <= r[:b] + 0.01)
+            end
+            r[:cr] = (r[:cr] + ext).uniq
+          end
+          # verlierendes Brett so kurz, dass es entfällt (z. B. Podeststück
+          # am Querverbinder): Unterkante an das davor liegende Brett anschließen
+          recs.each do |r|
+            ra = r[:joint]
+            next unless ra && ra[:b] - ra[:a] < 1.0
+            i = recs.index { |x| x.equal?(ra) }
+            prev = i && i > 0 ? recs[i - 1] : nil
+            next unless prev && ra[:v0] - prev[:v1] < 1.5
+            r[:joint] = prev
+            # das davor liegende Brett endet dann an derselben Stelle
+            if ra[:b] < prev[:b]
+              prev[:b] = ra[:b]
+              prev[:end_f] = ra[:end_f] if ra[:end_f]
+            end
+          end
           sat_curve(recs, corners, rest) if curve
           recs.each do |r|
             ra = r[:joint]
@@ -1194,17 +1218,19 @@ module JTools
           no = 0
           recs.each do |r|
             v0 = r[:a]; v1 = r[:b]
+            next if v1 - v0 < 1.0 # durch den Stoß entfallenes Reststück
             ztop_at = lambda do |v, after|
               k = cuts.rindex { |cv| after ? cv <= v + 1e-9 : cv < v - 1e-9 }
               k ? zt[k] : 0.0
             end
             top = [[v0, ztop_at.(v0, true)]]
             cuts.each_with_index do |cv, k|
-              next unless cv > v0 + 1e-6 && cv < r[:v1] - 1e-6
+              # (gekürztes Brett, Querverbinder: nur bis zum Brettende v1)
+              next unless cv > v0 + 1e-6 && cv < [r[:v1], v1].min - 1e-6
               top << [cv, k > 0 ? zt[k - 1] : 0.0] << [cv, zt[k]]
             end
             top << [r[:v1], ztop_at.(r[:v1], false)] if v1 > r[:v1] + 1e-6
-            top << [v1, ztop_at.(r[:v1], false)]
+            top << [v1, ztop_at.([r[:v1], v1].min, false)]
             if r[:bf]
               bp = sat_samples(r).map { |v| [v, r[:bf].(v)] }
             else
@@ -1354,6 +1380,9 @@ module JTools
           end
         end
         lo = lo.map { |x| x + push } if push > 0
+        # Anfang über das Brettende hinaus verschoben (Hindernis überdeckt das
+        # ganze Brett, z. B. Podestbrett am U-Stoß): nicht darstellbar
+        return nil if lo.any? { |x| x > b + 1e-3 }
         # Ausklinkung im Bereich eines schrägen Brettendes (Gehrung): liegt sie
         # auf einer Fläche hinter dem Ende, endet das Brett an der Ausklinkung
         st = steps.().find { |_, pos| pos.each_with_index.any? { |q, j| q >= hi[j] - eps } }
