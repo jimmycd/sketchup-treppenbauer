@@ -209,7 +209,8 @@ module JTools
         nf = faces.size
         sides = [1] + (0...nf).map { |i| 7 + i }
         out = []
-        out << 'TPA\\ALBATROS\\EDICAD\\02.00:1224:r0w0h0s1'
+        # Feld am Ende der Kopfzeile: s1 (Standard), s3 = N1 (vorne), s6 = N (hinten)
+        out << "TPA\\ALBATROS\\EDICAD\\02.00:1224:r0w0h0s#{prog[:field] || 1}"
         out << "::SIDE=#{sides.map { |x| "#{x};" }.join}"
         out << "::UNm DL=#{n(prog[:l])} DH=#{n(prog[:w])} DS=#{n(prog[:t])}"
         out << "'tcn version=2.6.14"

@@ -67,10 +67,13 @@ module JTools
       }.freeze
 
       Result = Struct.new(:sheets, :unplaced, :warnings, :parts, :boards, :longs)
-      # überlange eingestemmte Wange: eigenes Programm, ggf. in zwei Läufen
+      # Teile mit eigenem Rohling statt Verschachtelung (eingestemmte Wangen,
+      # Handläufe): eigenes Programm, überlang in zwei Läufen
+      OWN_BLANK = %i[stringer rail].freeze
       LongPart = Struct.new(:part, :prog, :split, :notes) do
         def label; part.label; end
         def blank; [prog[:l], prog[:w]]; end
+        def kind_name; Parts::KIND_NAMES[part.kind] || part.kind.to_s; end
       end
       SheetInfo = Struct.new(:thickness, :index, :count, :placements, :used_len, :util, :tool)
 
@@ -152,7 +155,7 @@ module JTools
         nh = parts.sum { |pt| pt.drills.count { |h| h[:ang] } }
         if nh > 0 && o['drill_wange'] == 'bohren'
           warnings << "#{nh} Bohrungen für Geländerstäbe in der Wangenoberkante (Bohraggregat, nach der Außenkontur): " \
-                      'vor der Oberkante muss Platz für das Aggregat sein – Teileabstand prüfen oder „nur markieren“ wählen.'
+                      'je Wange ein eigener Rohling; vor der Oberkante muss Platz für das Aggregat sein – Rohling-Zugabe prüfen oder „nur markieren“ wählen.'
         end
         (boards || []).each do |b|
           w = depth_warning("Wange #{b.label} (#{fmt(b.t)} mm)", outer_tool(o, b.t))
@@ -167,7 +170,19 @@ module JTools
         end
         sheets = []
         unplaced = []
-        parts.group_by(&:thickness).sort.each do |th, list|
+        # Wangen und Handläufe nie verschachteln: je Teil ein eigener Rohling,
+        # damit das Bohraggregat von der Seite an die Kanten kommt
+        longs = []
+        own, nest = parts.partition { |pt| OWN_BLANK.include?(pt.kind) }
+        own.map(&:thickness).uniq.sort.each do |th|
+          w = depth_warning("#{own.select { |pt| pt.thickness == th }.map(&:label).join(', ')} (#{fmt(th)} mm)", outer_tool(o, th))
+          warnings << w if w
+        end
+        own.each do |pt|
+          lp = long_part(pt, o, warnings)
+          lp ? longs << lp : unplaced << pt
+        end
+        nest.group_by(&:thickness).sort.each do |th, list|
           tl = outer_tool(o, th)
           w = depth_warning("Platten #{fmt(th)} mm", tl)
           warnings << w if w
@@ -184,15 +199,6 @@ module JTools
             area = sh.placements.map { |pl| pl.part.area }.sum
             util = area / (o['plate_l'] * o['plate_w'])
             sheets << SheetInfo.new(th, i + 1, nester.plates.size, sh.placements, sh.maxx, util, tl)
-          end
-        end
-        longs = []
-        if o['long_mode'] == 'drehen'
-          unplaced.select { |pt| pt.kind == :stringer }.each do |pt|
-            lp = long_part(pt, o, warnings)
-            next unless lp
-            longs << lp
-            unplaced.delete(pt)
           end
         end
         unless unplaced.empty?
@@ -223,25 +229,28 @@ module JTools
         jb.notes.concat(long_notes(jb.label, jb.raw_blank, sp1[:x_t], o, jb.programs.size > 1))
       end
 
-      # Eingestemmte Wange, die nicht auf die Platte passt: eigener Rohling
+      # Eingestemmte Wange bzw. Handlauf: eigener Rohling (blank_margin ringsum)
       def long_part(pt, o, warnings)
         tl = outer_tool(o, pt.thickness)
         prog = Lauf.from_part(pt, o, tl[:nr])
+        name = Parts::KIND_NAMES[pt.kind] || pt.kind.to_s
         if prog[:w] > o['plate_w'] + 1e-6
-          warnings << "Wange #{pt.label}: Rohling #{prog[:w].round} mm breiter als der Tisch (#{o['plate_w'].round} mm)."
+          warnings << "#{name} #{pt.label}: Rohling #{prog[:w].round} mm breiter als der Tisch (#{o['plate_w'].round} mm)."
           return nil
         end
-        sp = Lauf.split(prog, o, tl[:d] / 2.0)
-        sp[:warnings].each { |w| warnings << "Wange #{pt.label}: #{w}" }
+        if o['long_mode'] == 'drehen'
+          sp = Lauf.split(prog, o, tl[:d] / 2.0)
+        else
+          sp = { runs: [Lauf::Run.new('A', false, prog, nil)], x_t: nil, warnings: [] }
+          sp[:warnings] << "Rohling #{prog[:l].round} mm länger als der Verfahrweg (#{o['mach_l'].round} mm)" if prog[:l] > o['mach_l'] + 1e-6
+        end
+        sp[:warnings].each { |w| warnings << "#{name} #{pt.label}: #{w}" }
         return nil unless sp[:runs]
         notes = []
         if sp[:runs].size > 1
           notes.concat(long_notes(pt.label, [prog[:l], prog[:w]], sp[:x_t], o, false))
-          warnings << "Wange #{pt.label} überlang (Rohling #{prog[:l].round} × #{prog[:w].round} mm): 2 Läufe, " \
+          warnings << "#{name} #{pt.label} überlang (Rohling #{prog[:l].round} × #{prog[:w].round} mm): 2 Läufe, " \
                       'dazwischen drehen – Einrichtung siehe …_Wangen_Nacharbeit.txt.'
-        else
-          notes << "#{pt.label}: eigener Rohling #{prog[:l].round} × #{prog[:w].round} mm (länger als die Rohplatte), Kante 1 = y 0 am vorderen Anschlag"
-          warnings << "Wange #{pt.label}: länger als die Rohplatte – eigenes Programm auf Rohling #{prog[:l].round} × #{prog[:w].round} mm."
         end
         LongPart.new(pt, prog, sp, notes)
       end
@@ -308,7 +317,7 @@ module JTools
         (res.longs || []).each do |lp|
           runs = lp.split[:runs]
           runs.each do |run|
-            path = File.join(dir, "#{base}_Wange_#{lp.label}#{runs.size > 1 ? "_#{run.name}" : ''}.tcn")
+            path = File.join(dir, "#{base}_#{lp.kind_name}_#{lp.label}#{runs.size > 1 ? "_#{run.name}" : ''}.tcn")
             Tcn.write_prog(path, runs.size > 1 ? Lauf.labeled(run) : run.prog)
             files << path
             (bfiles[lp.label] ||= []) << File.basename(path)
@@ -319,7 +328,7 @@ module JTools
           txt = File.join(dir, "#{base}_Wangen_Nacharbeit.txt")
           n_w = (res.boards || []).size + (res.longs || []).size
           File.open(txt, 'wb') do |io|
-            head = (res.longs || []).empty? ? "Aufgesattelte Wangen – Hinweise (#{res.boards.size} Wangen)" : "Wangen – Hinweise (#{n_w} Wangen mit eigenem Programm)"
+            head = (res.longs || []).empty? ? "Aufgesattelte Wangen – Hinweise (#{res.boards.size} Wangen)" : "Wangen und Handläufe – Hinweise (#{n_w} Teile mit eigenem Programm)"
             io.write(([head, ''] + notes).join("\r\n").encode('Windows-1252', invalid: :replace, undef: :replace, replace: '_') + "\r\n")
           end
           files << txt
@@ -435,7 +444,7 @@ module JTools
         nrun = bs.count { |b| b.splits && b.splits.values.any? { |sp| sp[:runs] && sp[:runs].size > 1 } } +
                ls.count { |lp| lp.split[:runs].size > 1 }
         unless ls.empty?
-          rows << ['Eingestemmte Wangen mit eigenem Rohling', ls.size, ls.sum { |lp| lp.split[:runs].size }.to_s + ' TCN']
+          rows << ['Wangen und Handläufe mit eigenem Rohling', ls.size, ls.sum { |lp| lp.split[:runs].size }.to_s + ' TCN']
         end
         rows << ['Überlange Wangen (2 Läufe, drehen)', nrun, "Verfahrweg #{fmt(o['mach_l'], 0)} mm"] if nrun > 0
         tools = res.sheets.map { |sh| [sh.thickness, sh.tool] } + bs.map { |b| [b.t, outer_tool(o, b.t)] } +

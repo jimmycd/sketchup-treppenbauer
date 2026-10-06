@@ -39,12 +39,12 @@ Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`
 - **Maschine:** Verfahrweg X 3200 mm, TpaCAD nimmt keine TCN mit DL > 3200 mm an, Überstand nur nach rechts. Strategie (Doc „Lange Wangen auf 3-m-CNC – Wendestrategie“): Lauf A mit Ende A am linken X-Anschlag und Kante 1 am vorderen Y-Anschlag; Wange 180° in der Ebene drehen; Lauf B mit Ende B am selben Anschlag und Kante 1 am hinteren Y-Anschlag. Die Rohbreite kürzt sich heraus, nur die Rohlänge muss stimmen.
 - **Neues Modul `lauf.rb`** (ohne SketchUp-API): allgemeine Programmform (Bahnen, Bohrungen, Hilfsflächen), `Lauf.split` teilt bei x_T in der Überlappungszone mit größtem Abstand zu Bohrungen, Gravur, Markierungen und Schrägen; Außenkonturen werden geteilt und je `long_overlap` überlappend gefräst, Nuten nur, wenn sie durchlaufen (Tritt- + Setzstufen). Lauf B: x' = L − x, y' = W − y, Hilfsflächen starr mitgedreht. Haltestege (`tab_n`/`tab_w`/`tab_h`) im zuerst gefrästen Lauf jeder Seite.
 - `Tcn.build_job` läuft jetzt über `Lauf.from_job` + `Tcn.build_prog` (Ausgabe bytegleich wie 2.10.0).
-- **Eingestemmte Wangen**, die nicht auf die Rohplatte passen, bekommen einen eigenen Rohling (`blank_margin` ringsum) statt „nicht platziert“: `…_Wange_WA1.tcn` bzw. `…_Wange_WA1_A.tcn` + `_B.tcn`.
+- **Wangen und Handläufe werden nie verschachtelt** (Jürgen: sonst kommt das Bohraggregat nicht seitlich an die Kanten): jede eingestemmte Wange und jeder Handlauf bekommt einen eigenen Rohling (`blank_margin` ringsum, `Cnc::OWN_BLANK`), `…_Wange_WA1.tcn` / `…_Handlauf_H1.tcn`, überlang `…_A.tcn` + `_B.tcn`. Bohrungen am Teil (`Part#drills`, auch künftige am Handlauf) laufen über `Lauf.from_part` mit.
 - **Aufgesattelte Wangen** über 3200 mm: `…_Seite1_A/B.tcn` (mit Wenden auch `Seite2_A/B`, Reihenfolge = alphabetisch). Überlang wird nicht formatiert (`Job#long`, Bezug Rohkanten).
 - Einrichtblatt in `…_Wangen_Nacharbeit.txt` (Rohlänge, Teilung, Anschläge, Reihenfolge, Haltestege); Vorschau zeigt die Teilung.
 - Neue CNC-Optionen: `long_mode` (`drehen` | `aus` = Verhalten wie 2.10.0), `mach_l` 3200, `long_overlap` 10, `tab_n` 3, `tab_w` 20, `tab_h` 4.
-- **Bezug Lauf B:** über das Feld in TpaCAD – Lauf A im Feld N1 (vorne), Lauf B im Feld N (hinten), steht in der Kommentarzeile und im Einrichtblatt (DH = Rohbreite, y' = W − y).
-- **TpaCAD ungeprüft:** ob das Feld in der TCN gespeichert werden kann (derzeit nur Hinweis); Haltestege als eigene Bahnstücke mit geringerer Tiefe.
+- **Bezug Lauf B:** über das Feld in TpaCAD, Ende der Kopfzeile (Jürgen): Lauf A `…:r0w0h0s3` = Feld N1 (vorne), Lauf B `…:r0w0h0s6` = Feld N (hinten); DH = Rohbreite, y' = W − y. Alle anderen Programme bleiben bei `s1`.
+- **TpaCAD ungeprüft:** Haltestege als eigene Bahnstücke mit geringerer Tiefe.
 - Tests: neu `test/lauf_test.rb` (4 Formen × Seitenkombinationen × Wenden × fräsen/markieren × 2 Höhen).
 
 ## Version 2.10.0 (Branch `claude/gelaenderstaebe-rund-quadratisch-efegi4`) – Geländerstäbe rund oder quadratisch, Bohrungen im TCN

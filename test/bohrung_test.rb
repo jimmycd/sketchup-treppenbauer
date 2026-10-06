@@ -4,7 +4,7 @@
 # von oben im Teil, Wangenbohrung setzt an der Teilkante an und läuft hinein.
 require_relative 'su_mock'
 $LOAD_PATH.unshift File.expand_path('../src', __dir__)
-%w[params geometry fit stringers railing builder parts nesting tcn wange3d cnc].each { |f| require "jt_treppenbau/#{f}" }
+%w[params geometry fit stringers railing builder parts nesting tcn lauf wange3d cnc].each { |f| require "jt_treppenbau/#{f}" }
 include JTools::Treppenbau
 Dir.mkdir('out') unless Dir.exist?('out')
 
@@ -44,7 +44,19 @@ cases = 0
         errs << 'keine Stäbe' if bars.empty?
         errs << 'Stabform falsch' unless bars.all? { |b| b[:shape] == shape && (b[:d] - dd).abs < 1e-9 }
         nb = 0
-        res.sheets.each do |sh|
+        # Wangen und Handläufe: eigener Rohling (Teilkoordinaten), ggf. zwei Läufe
+        own = res.longs.map { |lp| Struct.new(:part, :poly, :drills).new(lp.part, lp.part.poly, lp.part.drills) }
+        res.longs.each do |lp|
+          tcn = lp.split[:runs].flat_map { |rn| Tcn.build_prog(rn.prog) }
+          nd = (lp.part.drills || []).size
+          nh = (lp.part.drills || []).count { |h| h[:ang] }
+          w81 = tcn.count { |l| l.start_with?('W#81{') }
+          exp = mode == 'markieren' ? nd - nh : nd
+          errs << "#{lp.label}: #{w81} Bohrblöcke statt #{exp}" if w81 != exp
+          gs = tcn.count { |l| l.start_with?('GSIDE#') }
+          errs << "#{lp.label}: Hilfsflächen #{gs} statt #{mode == 'bohren' ? nh : 0}" if gs != (mode == 'bohren' ? nh : 0)
+        end
+        ([Struct.new(:placements).new(own)] + res.sheets).each_with_index do |sh, si|
           sh.placements.each do |pl|
             (pl.drills || []).each do |h|
               nb += 1
@@ -59,6 +71,7 @@ cases = 0
               end
             end
           end
+          next if si.zero?
           tcn = Tcn.build(sh.placements, length: o['plate_l'], width: o['plate_w'], thickness: sh.thickness,
                                          tool_outer: sh.tool[:nr], overcut: 1, climb: true, deco_tool: 1400, deco_depth: 2,
                                          engrave: false, text_h: 30, pocket_tool: 1400, pocket_d: 10,

@@ -1,10 +1,12 @@
 # Überlange Wangen: zwei Läufe, dazwischen 180° drehen (gleicher X-Anschlag).
 # Prüft für eingestemmte und aufgesattelte Wangen (mit/ohne Wenden):
 #  * jede TCN höchstens mach_l lang (DL) und alle Punkte auf Seite 1 in 0..DL
+#  * Feld in der Kopfzeile: Lauf A s3 (N1, vorne), Lauf B s6 (N, hinten)
 #  * Lauf B zurückgedreht = Originalpunkte; keine Bearbeitung verloren
 #  * Außenkontur: Lauf A deckt x <= x_T + Überlauf, Lauf B x >= x_T − Überlauf
 #  * Nuten/Bohrungen/Gravur/Schrägen nie geteilt, Haltestege nur im ersten Lauf
-#  * long_mode 'aus': Ausgabe wie vor 2.11.0 (kein Lauf, keine eigenen Rohlinge)
+#  * Wangen und Handläufe nie verschachtelt (eigener Rohling)
+#  * long_mode 'aus': kein Teil in zwei Läufen
 require_relative 'su_mock'
 $LOAD_PATH.unshift File.expand_path('../src', __dir__)
 %w[params geometry fit stringers builder parts nesting tcn lauf wange3d cnc].each { |f| require "jt_treppenbau/#{f}" }
@@ -50,6 +52,8 @@ check = lambda do |name, prog, sp, r|
     a, b = runs
     texts = runs.map { |rn| Tcn.build_prog(Lauf.labeled(rn)).join("\n") }
     texts.each_with_index do |tx, i|
+      fld = tx[/\A.*?:r0w0h0s(\d+)/, 1]
+      errs << "Lauf #{runs[i].name}: Feld s#{fld} statt s#{runs[i].rot ? 6 : 3}" if fld != (runs[i].rot ? '6' : '3')
       errs << "DL #{dl(tx)} > #{mach}" if dl(tx) > mach + 1e-6
       tcn_paths(tx).each do |pa|
         pa[:pts].each do |x, y|
@@ -120,9 +124,15 @@ Dir.mktmpdir do |dir|
               end
             end
             Cnc.export(dir, 'T', res, o)
-            # long_mode aus: keine Läufe, keine eigenen Rohlinge
+            # Wangen und Handläufe nie auf einer Platte
+            on_sheet = res.sheets.flat_map { |sh| sh.placements.map(&:part) }.select { |pt| Cnc::OWN_BLANK.include?(pt.kind) }
+            unless on_sheet.empty?
+              fails += 1
+              puts "FEHLER #{tag}: #{on_sheet.map(&:label).join(', ')} verschachtelt"
+            end
+            # long_mode aus: keine Läufe
             ra = Cnc.compute(plan, p, o.merge('long_mode' => 'aus'))
-            if !ra.longs.empty? || ra.boards.any? { |b| b.long }
+            if ra.longs.any? { |lp| lp.split[:runs].size > 1 } || ra.boards.any? { |b| b.long }
               fails += 1
               puts "FEHLER #{tag}: long_mode aus erzeugt Läufe"
             end
@@ -132,7 +142,7 @@ Dir.mktmpdir do |dir|
     end
   end
   long_files = Dir[File.join(dir, '*_[AB].tcn')]
-  puts "#{long_files.size} Lauf-Dateien, längste DL #{long_files.map { |f| dl(File.read(f)) }.max}"
+  puts "#{long_files.size} Lauf-Dateien, längste DL #{long_files.map { |f| dl(File.binread(f)) }.max}"
 end
 puts "#{cases} Programme geprüft, #{fails} Fehler"
 exit(fails.zero? ? 0 : 1)

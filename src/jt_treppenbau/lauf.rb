@@ -9,9 +9,9 @@
 #   Drehen:  Wange 180° in der Tischebene drehen (Oberseite bleibt oben).
 #   Lauf B:  anderes Ende am selben linken Anschlag, Kante 1 jetzt am
 #            hinteren Y-Anschlag; bearbeitet x >= x_T (− Überlauf).
-#            Koordinaten x_B = L − x, y_B = W − y (DH = W). In TpaCAD läuft
-#            Lauf A im Feld N1 (vorne), Lauf B im Feld N (hinten): die
-#            Rohbreite kürzt sich dann heraus.
+#            Koordinaten x_B = L − x, y_B = W − y (DH = W). Lauf A läuft im
+#            Feld N1 (vorne, Kopfzeile s3), Lauf B im Feld N (hinten, s6):
+#            die Rohbreite kürzt sich dann heraus.
 # Die Teilung x_T liegt in der Überlappungszone an der Stelle mit dem größten
 # Abstand zu allen unteilbaren Bearbeitungen (Nuten, Bohrungen, Gravur,
 # Schrägen); nur Außenkonturen werden geteilt und überlappend gefräst.
@@ -33,6 +33,8 @@ module JTools
       module_function
 
       SAFE = 5.0   # Sicherheitsabstand zum Ende des Verfahrwegs (mm)
+      FIELD_N1 = 3 # TpaCAD-Feld N1 (vorne): Kopfzeile …:r0w0h0s3
+      FIELD_N = 6  # TpaCAD-Feld N (hinten): Kopfzeile …:r0w0h0s6
 
       # Lauf: name 'A'/'B' (welches Ende am Anschlag), rot (gedreht), prog
       Run = Struct.new(:name, :rot, :prog, :x_t)
@@ -229,7 +231,8 @@ module JTools
         info = "Lauf #{run.name}: Feld #{run.rot ? 'N' : 'N1'} – Ende #{run.name} am linken X-Anschlag, " \
                "Kante 1 am #{run.rot ? 'HINTEREN' : 'VORDEREN'} Y-Anschlag"
         info += ' (180 Grad gedreht)' if run.rot
-        pg.merge(title: "#{pg[:title]} Lauf #{run.name}", comments: (pg[:comments] || []) + ["'#{info}"])
+        pg.merge(title: "#{pg[:title]} Lauf #{run.name}", comments: (pg[:comments] || []) + ["'#{info}"],
+                 field: run.rot ? FIELD_N : FIELD_N1)
       end
 
       # --- Programme aufbauen ------------------------------------------------
