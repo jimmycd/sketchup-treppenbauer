@@ -294,6 +294,78 @@ module JTools
           ops: ops, faces: faces, outline: poly, drills: drills }
       end
 
+      # Geländerpfosten mit Taschen und Bohrungen (part.ops): je bearbeitete
+      # Fläche ein Programm, diese Fläche oben – nur senkrechte Bearbeitung
+      # (Nutfräser, Bohrer), kein Seitenaggregat.
+      # Lage im Tisch: Pfostenunterkante links (x = z), Fläche f oben,
+      # Fläche f+1 vorne (y = 0): y = s − a. Zwischen zwei Programmen wird der
+      # Pfosten nach hinten abgerollt (vordere Fläche nach oben, je 90°).
+      # Programm 1 fräst aus dem Rohling (Zugabe blank_margin) und zuletzt die
+      # Außenkontur, die weiteren arbeiten am fertigen Pfosten (l × s).
+      # Rückgabe: [{ face:, rolls:, prog: }]; leer ohne Bearbeitung.
+      def post_progs(part, o, tool_outer)
+        ops = part.ops || []
+        return [] if ops.empty?
+        len = part.size[0]; s = part.thickness.to_f
+        fs = ops.map { |x| x[:face] }.uniq.sort
+        # Beginn nach der größten Lücke: möglichst wenig abrollen
+        seq = fs.each_index.map { |i| fs.rotate(i) }.min_by { |sq| [(sq[-1] - sq[0]) % 4, sq[0]] }
+        n = seq.size
+        prev = nil
+        seq.each_with_index.map do |f, i|
+          mine = ops.select { |x| x[:face] == f }
+          fname = mine[0][:face_name]
+          front = "Fläche #{(f + 1) % 4 + 1}"
+          rolls = prev ? (f - prev) % 4 : 0
+          prev = f
+          if i.zero?
+            pg = from_part(part, o, tool_outer)
+            off = o['blank_margin'].to_f
+            cut = pg[:ops].index { |op| op[:cut] } || pg[:ops].size
+            pg[:ops] = pg[:ops][0...cut] + post_face_ops(mine, s, len, off, o) + pg[:ops][cut..-1]
+            info = ["'Schritt 1/#{n}: Rohling #{fmt0(pg[:l])} x #{fmt0(pg[:w])} x #{fmt0(s)} mm, #{fname} oben, #{front} vorne",
+                    "'Nach dem Ausfräsen Unterende (links) und #{fname} am Pfosten anzeichnen"]
+          else
+            pg = { l: len, w: s, t: s, ops: post_face_ops(mine, s, len, 0.0, o), faces: [], outline: nil, drills: [] }
+            info = ["'Schritt #{i + 1}/#{n}: Pfosten #{rolls == 1 ? '' : "#{rolls} x "}90 Grad nach hinten abrollen " \
+                    "(vordere Fläche nach oben), dann #{fname} oben, #{front} vorne",
+                    "'Unterende am linken X-Anschlag, Pfosten am vorderen Y-Anschlag (Rohling = fertiger Pfosten)"]
+          end
+          pg[:title] = "#{part.label} #{fname.sub(/ \(.*/, '')} oben"
+          pg[:comments] = ["'Treppenbau #{part.label} #{fname} oben"] + info
+          { face: f, rolls: rolls, prog: pg }
+        end
+      end
+
+      # Taschen und Bohrungen einer Pfostenfläche (oben) im Tisch, Versatz off
+      # (Rohlingzugabe). Taschen, die an einer Pfostenkante bzw. am Ende offen
+      # sind, laufen darüber hinaus: im Rohling um Fräserradius + 1 mm, am
+      # fertigen Pfosten nur bis Fräsermitte auf der Kante (Bahn bleibt im
+      # Werkstück, der Fräser räumt die Kante trotzdem ganz frei).
+      def post_face_ops(list, s, len, off, o)
+        pd = o['pocket_d'].to_f
+        ext = off > 0 ? pd / 2.0 + 1.0 : pd / 2.0
+        res = []
+        list.select { |x| x[:kind] == :pocket }.each do |t|
+          x0 = t[:z0]; x1 = t[:z1]; y0 = s - t[:a1]; y1 = s - t[:a0]
+          x0 -= ext if x0 <= 0.5
+          x1 += ext if x1 >= len - 0.5
+          y0 -= ext if y0 <= 0.5
+          y1 += ext if y1 >= s - 0.5
+          pa = Tcn.pocket_path([[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map { |x, y| [x + off, y + off] }, pd)
+          res << { k: :mill, pts: pa, z: -t[:depth].to_f, tool: o['pocket_tool'], comp: 0, what: t[:what] } if pa.size >= 2
+        end
+        list.select { |x| x[:kind] == :hole }.each do |h|
+          res << { k: :vdrill, pt: [h[:z] + off, s - h[:a] + off], depth: h[:depth].to_f, d: h[:d].to_f,
+                   tool: o['drill_tool'], what: h[:what] }
+        end
+        res
+      end
+
+      def fmt0(v)
+        format('%.0f', v.to_f)
+      end
+
       # Aufgesattelte Wange: Programm einer Seite (Wange3d::Prog) in allgemeiner
       # Form – gleiche Reihenfolge und Werte wie bisher Tcn.build_job.
       def from_job(job, prog, opts)
