@@ -36,6 +36,12 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
 
+## Version 2.15.0 – Gleicher Stababstand
+- **Ein Mittenabstand je Geländerseite** (`Railing.bars`): alle Stäbe einer Seite haben denselben waagerechten Abstand entlang der Achse im Grundriss, bei eingestemmten und aufgesattelten Wangen. Abstand = kleinste gleichmäßige Teilung aller Felder (Pfosten bzw. Zwischenpfosten); je Feld so viele Stäbe, dass der lichte Abstand zum Pfosten höchstens `bal_gap` ist, Reihe mittig. Das bisherige Stufenraster (Stäbe je Stufe) entfällt.
+- Aufgesattelt/frei: Reihe innerhalb des Spielraums verschoben und Abstand um bis zu 15 % verkleinert, damit möglichst kein Stab näher als `bal_edge` an einer Stufenkante steht; verbleibende Fälle als Warnung.
+- Zwischenpfosten genau in der Feldmitte. Stab-in-Pfosten-Prüfung berücksichtigt die Höhe (Wendeltreppe > 360°).
+- Test: `railing_test` prüft gleichen Abstand zwischen Nachbarstäben.
+
 ## Version 2.14.0 – Fräsliste (.xmlst) für TpaCAD
 - **`Fraesliste.write(dir, base, files)`** (`fraesliste.rb`, ohne SketchUp-API), aufgerufen am Ende von `Cnc.export`: schreibt `Liste_<base>.xmlst` mit einer `<Row>` je geschriebener `.tcn` in Export-Reihenfolge. Format wie csv2tcn/`Liste_Regalbad.xmlst`: UTF-8 mit BOM, CRLF, `NAME`/`FileName` = voller Pfad in Anführungszeichen (Windows-`\`), `REPETITIONS` 1, `TIME` 00:00:00, Offsets 0.
 - Werte nur aus der TCN-Datei selbst (`Fraesliste.header`): `LENGTH/HEIGHT/THICKNESS` = `DL/DH/DS`, `FIELD` aus dem Kopfzeilen-Feld `s<n>` über `FIELD_BY_HEADER` (s1 → 9 wie csv2tcn; s3 → 3, s6 → 6 **ungeprüft**). So bleibt die Liste richtig, egal welche Teile der Export als TCN schreibt.
