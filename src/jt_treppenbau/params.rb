@@ -196,10 +196,19 @@ module JTools
           options: [['keins', 'kein Geländer'], ['aussen', 'außen'], ['innen', 'innen'], ['beide', 'beidseitig']] },
         { key: 'rail_h', label: 'Handlaufhöhe (über Stufenvorderkante)', type: 'number', default: 90.0, unit: 'cm', group: 'Geländer', min: 60, step: 1 },
         { key: 'rail_d', label: 'Handlaufdurchmesser', type: 'number', default: 4.5, unit: 'cm', group: 'Geländer', min: 2, step: 0.5 },
-        { key: 'post_every', label: 'Pfosten an jeder n-ten Stufe', type: 'number', default: 1, unit: 'Stk', group: 'Geländer', min: 1, step: 1 },
-        { key: 'post_s', label: 'Pfostenquerschnitt', type: 'number', default: 4.0, unit: 'cm', group: 'Geländer', min: 1, step: 0.5 },
+        { key: 'newel_s', label: 'Pfostenquerschnitt (Antritt, Austritt, Laufwechsel)', type: 'number', default: 9.0, unit: 'cm', group: 'Geländer', min: 2, step: 0.5,
+          help: 'Pfosten stehen am Antritt, am Austritt und an jedem Laufwechsel (Ecke bzw. Zwischenpodest). Der Handlauf läuft von Pfosten zu Pfosten.' },
+        { key: 'bal_d', label: 'Stabquerschnitt', type: 'number', default: 2.5, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
+          help: '0 = keine Stäbe.' },
+        { key: 'bal_gap', label: 'Lichter Stababstand (höchstens)', type: 'number', default: 12.0, unit: 'cm', group: 'Geländer', min: 4, step: 0.5,
+          help: 'DIN 18065: höchstens 12 cm. Die Stäbe werden zwischen den Pfosten gleichmäßig verteilt.' },
+        { key: 'bal_edge', label: 'Stab: Mindestabstand zum Stufenrand', type: 'number', default: 3.0, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
+          help: 'Nur wo die Stäbe auf den Stufen stehen (aufgesattelte Wange, freitragend): Abstand Stabkante – Stufenvorderkante bzw. ' \
+                'Vorderkante der nächsten Stufe. Je Stufe wird die Tiefe in gleiche Felder geteilt, der Stab steht in Feldmitte.' },
+        { key: 'bal_depth', label: 'Stab: Einlasstiefe (Bohrung)', type: 'number', default: 3.0, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
+          help: 'Eingestemmte Wange: lotrechte Bohrung in die Wangenoberkante (schräg zur Wangenkante). Auf Stufen: Bohrung in die Trittstufe (höchstens Stufendicke − 1 cm).' },
         { key: 'rail_inset', label: 'Geländerabstand von der Laufkante', type: 'number', default: 5.0, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
-          help: 'Bei Wangentreppen steht das Geländer mittig auf der Wange.' },
+          help: 'Lage der Pfosten- und Stabachse auf den Stufen (aufgesattelt, freitragend). Bei eingestemmten Wangen steht das Geländer mittig auf der Wange.' },
 
         # --- Darstellung ----------------------------------------------------
         { key: 'show_walkline', label: 'Gehlinie einzeichnen', type: 'bool', default: true, group: 'Darstellung' },

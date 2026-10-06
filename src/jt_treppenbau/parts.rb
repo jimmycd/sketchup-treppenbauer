@@ -7,12 +7,19 @@
 #   Setzstufen           – Faser entlang der Länge
 #   Wangen               – abgewickelt, Faser entlang der Wange; mit Nuten
 #                          (Einstand) für Tritt- und Setzstufen
-#   Pfosten / Handlauf   – nur gerade Stücke
+#   Pfosten / Stäbe      – Zuschnitt (Länge × Querschnitt)
+#   Handlauf             – nur gerade Stücke
+#   Bohrungen (drills)   – Geländerstäbe: lotrecht in Wangenoberkante bzw.
+#                          Trittstufe; je Bohrung { x:, y:, depth:, d:, ang: }
+#                          in mm im Teilekoordinatensystem, ang = Winkel der
+#                          Bohrrichtung in der Teilebene (Grad, nur Wangen –
+#                          Bohrung von der Kante aus, schräg zur Kante);
+#                          bei Trittstufen von oben (ang = nil)
 
 module JTools
   module Treppenbau
     class Part
-      attr_accessor :id, :label, :kind, :thickness, :poly, :pockets, :pocket_depth, :info, :pocket_paths
+      attr_accessor :id, :label, :kind, :thickness, :poly, :pockets, :pocket_depth, :info, :pocket_paths, :drills
 
       def initialize(kind, label, thickness, poly, pockets = [], pocket_depth = 0.0, info = '')
         @kind = kind
@@ -23,6 +30,7 @@ module JTools
         @pocket_depth = pocket_depth
         @info = info
         @pocket_paths = []
+        @drills = []
       end
 
       def area
@@ -41,7 +49,7 @@ module JTools
       MM = 10.0
       KIND_NAMES = {
         tread: 'Trittstufe', landing: 'Podest', riser: 'Setzstufe', stringer: 'Wange',
-        newel: 'Pfosten (Wange)', post: 'Geländerpfosten', rail: 'Handlauf'
+        newel: 'Pfosten (Wange)', post: 'Geländerpfosten', bar: 'Geländerstab', rail: 'Handlauf'
       }.freeze
 
       # opts: :treads, :risers, :stringers, :posts, :rail (bool), :einstand (mm)
@@ -95,11 +103,25 @@ module JTools
           label = landing ? "P#{k + 1}" : "T#{k + 1}"
           axis = Geo.sub(l[:out], l[:in])
           axis = Geo.mul(axis, -1) if plan.outer_side < 0
-          res << Part.new(landing ? :landing : :tread, label, p['tread_t'] * MM,
-                          align(poly.map { |q| Geo.mul(q, MM) }, axis), [], 0.0,
+          holes = tread_drills(plan, p, k)
+          rot, = rotation_for(axis)
+          pp, hp = transform_all(poly.map { |q| Geo.mul(q, MM) }, holes.map { |q| [Geo.mul(q[:pt], MM)] }, rot)
+          part = Part.new(landing ? :landing : :tread, label, p['tread_t'] * MM, pp, [], 0.0,
                           landing ? 'Podest' : "Stufe #{k + 1}")
+          part.drills = holes.each_with_index.map { |q, i| { x: hp[i][0][0], y: hp[i][0][1], depth: q[:depth] * MM, d: q[:d] * MM, ang: nil } }
+          part.info += ", #{part.drills.size} Bohrungen (Geländerstäbe)" unless part.drills.empty?
+          res << part
         end
         res
+      end
+
+      # Bohrungen für Geländerstäbe auf Stufe k (cm, Grundriss)
+      def tread_drills(plan, p, k)
+        return [] if p['rail'] == 'keins'
+        Railing.compute(plan, p)[:sides].flat_map do |sd|
+          next [] unless sd[:mount] == :stufe
+          sd[:bars].select { |b| b[:tread] == k && b[:drill] }.map { |b| { pt: b[:pt], depth: b[:drill][:depth], d: b[:drill][:d] } }
+        end
       end
 
       def risers(plan, p, st_sides, einstand)
@@ -169,12 +191,16 @@ module JTools
           end
           cnt[b[:which]] += 1
           lbl = "W#{b[:which] == :outer ? 'A' : 'I'}#{cnt[b[:which]]}"
-          res << board_part(plan, b, b[:side] > 0, pockets[b[:which]], einstand, st * MM, lbl,
-                            "Wange #{b[:which] == :outer ? 'außen' : 'innen'} #{cnt[b[:which]]}", pocket_d)
+          part = board_part(plan, b, b[:side] > 0, pockets[b[:which]], einstand, st * MM, lbl,
+                            "Wange #{b[:which] == :outer ? 'außen' : 'innen'} #{cnt[b[:which]]}", pocket_d, wange_drills(plan, p, b))
+          part.info += ", #{part.drills.size} Bohrungen (Geländerstäbe)" unless part.drills.empty?
+          res << part
         end
+        rail_sides = p['rail'] == 'keins' ? [] : Railing.sides(plan, p)
         r[:newels].each do |nw|
-          rail_here = p['rail'] == 'beide' || (p['rail'] == 'innen' && nw[:which] == :inner) || (p['rail'] == 'aussen' && nw[:which] == :outer)
-          z1 = nw[:ztop] + (rail_here ? p['rail_h'] - p['str_over'] : 10.0)
+          # auf Geländerseiten ersetzt der Geländerpfosten den Eckpfosten
+          next if rail_sides.include?(nw[:which])
+          z1 = nw[:ztop] + 10.0
           res << Part.new(:newel, "N#{res.count { |x| x.kind == :newel } + 1}", st * MM,
                           rect((z1 - nw[:zbot]) * MM, st * MM), [], 0.0, 'Eckpfosten Wange')
         end
@@ -215,7 +241,7 @@ module JTools
       # (bei schräg auf die Wange treffenden Stufenkanten im Wendelbereich
       # verschiebt sich die Kante mit der Tiefe; die Nut deckt beides ab).
       # Zusammenhängende Ausstemmungen werden zu einer Kontur vereinigt.
-      def board_part(plan, b, mirror, steps, einstand, thick, label, info, pocket_d = 10.0)
+      def board_part(plan, b, mirror, steps, einstand, thick, label, info, pocket_d = 10.0, drills = [])
         p0 = b[:u0]; p1 = b[:u1]
         mapx = ->(s) { (mirror ? (p1 - s) : (s - p0)) * MM }
         poly = Stringers.wange_outline(b).map { |x, z| [mapx.(p0 + x), z * MM] }
@@ -260,10 +286,27 @@ module JTools
         axis = [mapx.(p1) - mapx.(p0), (Stringers.top(b, p1) - Stringers.top(b, p0)) * MM]
         axis = Geo.mul(axis, -1) if axis[0] < 0
         rot, = rotation_for(axis)
-        pp, all = transform_all(poly, pk + paths, rot)
+        # Bohrungen: Ansatzpunkt auf der Oberkante, Richtung lotrecht nach unten
+        holes = drills.map { |q| [[mapx.(q[:u]), q[:z] * MM]] }
+        pp, all = transform_all(poly, pk + paths + holes, rot)
         part = Part.new(:stringer, label, thick, pp, all[0, pk.size], einstand, info)
-        part.pocket_paths = all[pk.size..-1] || []
+        part.pocket_paths = all[pk.size, paths.size] || []
+        dv = Geo.rot([0.0, -1.0], rot)
+        ang = Math.atan2(dv[1], dv[0]) * 180.0 / Math::PI
+        part.drills = drills.each_with_index.map do |q, i|
+          h = all[pk.size + paths.size + i][0]
+          { x: h[0], y: h[1], depth: q[:depth] * MM, d: q[:d] * MM, ang: ang.round(2) }
+        end
         part
+      end
+
+      # Bohrungen der Geländerstäbe in einem Wangenbrett (cm, u/z)
+      def wange_drills(plan, p, b)
+        return [] if p['rail'] == 'keins'
+        Railing.compute(plan, p)[:sides].flat_map do |sd|
+          next [] unless sd[:mount] == :wange && sd[:which] == b[:which]
+          sd[:bars].select { |q| q[:drill] && q[:u] >= b[:u0] + 0.01 && q[:u] <= b[:u1] - 0.01 }.map { |q| q[:drill] }
+        end
       end
 
       # Parameter (u) des Schnitts einer Stufenlinie mit der Wangenfläche und
@@ -285,46 +328,25 @@ module JTools
       # Geländer
 
       def rail_sides(plan, p)
-        sides = case p['rail']
-                when 'aussen' then [:outer]
-                when 'innen' then [:inner]
-                else [:outer, :inner]
-                end
-        sides.delete(:inner) if plan.spiral && plan.spiral[:ri] < 10
-        sides
+        Railing.sides(plan, p)
       end
 
+      # Geländerpfosten und -stäbe als Zuschnitt (Länge × Querschnitt)
       def posts(plan, p)
         res = []
-        rh = p['rail_h']; r = p['rail_d'] / 2.0; ps = p['post_s']
-        every = [p['post_every'].to_i, 1].max
-        rail_sides(plan, p).each do |which|
-          on_str = Builder.stringer_sides(plan, p).include?(which)
-          over = on_str ? p['str_over'] : 0.0
-          zs = (0...plan.nlines).map { |k| plan.nose_z(k) + rh }
-          keys = plan.keys_for(which)
-          plan.profile(which, zs).each do |pc|
-            lens = []
-            [pc[0], pc[-1]].each do |it|
-              next unless it[3]
-              zb = on_str ? (Stringers.top_at(plan, p, which, it[2]) || plan.nose_z(it[3]) + over) : plan.nose_z(it[3])
-              lens << it[1] - r - zb
-            end
-            p0 = pc[0][2]; p1 = pc[-1][2]
-            (0...plan.treads).each do |k|
-              next unless (k + 1) % every == 0
-              a = keys[k]; b = keys[k + 1]
-              next if b - a < 1.0
-              pm = (a + b) / 2.0
-              next if pm <= p0 + 1.0 || pm >= p1 - 1.0
-              zr = Builder.interp_piece(pc, pm)
-              zb = on_str ? (Stringers.top_at(plan, p, which, pm) || zr - rh + over) : (k + 1) * plan.h
-              lens << zr - r - zb
-            end
-            lens.each do |ln|
-              next if ln < 2
-              res << Part.new(:post, "G#{res.size + 1}", ps * MM, rect(ln * MM, ps * MM), [], 0.0, 'Geländerpfosten')
-            end
+        Railing.compute(plan, p)[:sides].each do |sd|
+          nm = sd[:which] == :outer ? 'außen' : 'innen'
+          sd[:posts].each do |q|
+            ln = q[:ztop] - q[:zbot]
+            next if ln < 2
+            res << Part.new(:post, "G#{res.count { |x| x.kind == :post } + 1}", q[:s] * MM, rect(ln * MM, q[:s] * MM), [], 0.0,
+                            "Geländerpfosten #{nm} (#{q[:role]})")
+          end
+          sd[:bars].each do |q|
+            ln = q[:ztop] - q[:zbot]
+            next if ln < 2
+            res << Part.new(:bar, "ST#{res.count { |x| x.kind == :bar } + 1}", q[:d] * MM, rect(ln * MM, q[:d] * MM), [], 0.0,
+                            "Geländerstab #{nm}")
           end
         end
         res
@@ -334,14 +356,8 @@ module JTools
         res = []
         skipped = 0
         rd = p['rail_d']
-        rail_sides(plan, p).each do |which|
-          side = which == :outer ? plan.outer_side : -plan.outer_side
-          off = Builder.stringer_sides(plan, p).include?(which) ? p['str_t'] / 2.0 : -p['rail_inset']
-          zs = (0...plan.nlines).map { |k| plan.nose_z(k) + p['rail_h'] }
-          plan.profile(which, zs).each do |pc|
-            base = pc.map(&:first)
-            mn = Geo.miter_normals(base, side)
-            path = pc.each_with_index.map { |it, i| q = Geo.add(it[0], Geo.mul(mn[i], off)); [q[0], q[1], it[1]] }
+        Railing.compute(plan, p)[:sides].each do |sd|
+          sd[:rails].each do |path|
             straight_runs(path).each do |a, b|
               ln = Math.sqrt((b[0] - a[0])**2 + (b[1] - a[1])**2 + (b[2] - a[2])**2)
               if ln < 25.0

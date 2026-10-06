@@ -2,6 +2,7 @@
 # Treppenbau – Erzeugung der SketchUp-Geometrie aus einem Plan.
 
 require 'json'
+require_relative 'railing' unless defined?(JTools::Treppenbau::Railing)
 
 module JTools
   module Treppenbau
@@ -138,14 +139,15 @@ module JTools
           cnt[b[:which]] += 1
           g.name = "Wange #{b[:which] == :outer ? 'außen' : 'innen'} #{cnt[b[:which]]}" if g
         end
+        rail_sides = p['rail'] == 'keins' ? [] : Railing.sides(plan, p)
         r[:newels].each do |nw|
+          # auf Geländerseiten steht dort der Geländerpfosten (Railing)
+          next if rail_sides.include?(nw[:which])
           c = nw[:pt]
           sq = [c, Geo.add(c, Geo.mul(nw[:na], st)),
                 Geo.add(Geo.add(c, Geo.mul(nw[:na], st)), Geo.mul(nw[:nb], st)),
                 Geo.add(c, Geo.mul(nw[:nb], st))]
-          which = nw[:which]
-          rail_here = p['rail'] == 'beide' || (p['rail'] == 'innen' && which == :inner) || (p['rail'] == 'aussen' && which == :outer)
-          z1 = nw[:ztop] + (rail_here ? p['rail_h'] - p['str_over'] : 10.0)
+          z1 = nw[:ztop] + 10.0
           g = prism(grp.entities, sq, z1, nw[:zbot], m)
           g.name = 'Pfosten' if g
         end
@@ -283,59 +285,27 @@ module JTools
 
       # --- Geländer -----------------------------------------------------------
 
+      # Pfosten (Antritt, Austritt, Laufwechsel), Stäbe und Handlauf von
+      # Pfosten zu Pfosten – Planung in Railing (ohne SketchUp-API)
       def build_rails(grp, plan, p)
-        sides = case p['rail']
-                when 'aussen' then [:outer]
-                when 'innen'  then [:inner]
-                else [:outer, :inner]
-                end
-        sides.delete(:inner) if plan.spiral && plan.spiral[:ri] < 10
-        rh = p['rail_h']; r = p['rail_d'] / 2.0; ps = p['post_s']
-        every = [p['post_every'].to_i, 1].max
-        m = mat(:metall)
-        sides.each do |which|
-          side = which == :outer ? plan.outer_side : -plan.outer_side
-          on_str = stringer_sides(plan, p).include?(which)
-          over = on_str ? p['str_over'] : 0.0
-          off = on_str ? p['str_t'] / 2.0 : -p['rail_inset']
-          zs = (0...plan.nlines).map { |k| plan.nose_z(k) + rh }
-          poly = plan.send(which)
-          keys = plan.keys_for(which)
-          plan.profile(which, zs).each do |pc|
-            base = pc.map(&:first)
-            mn = Geo.miter_normals(base, side)
-            path = pc.each_with_index.map do |it, i|
-              q = Geo.add(it[0], Geo.mul(mn[i], off))
-              [q[0], q[1], it[1]]
-            end
-            tube(grp.entities, path, r, 12, m)
-
-            # Pfosten: Anfang, Ende, Stufenmitten
-            posts = []
-            [pc[0], pc[-1]].each do |it|
-              next unless it[3]
-              zb = on_str ? (Stringers.top_at(plan, p, which, it[2]) || plan.nose_z(it[3]) + over) : plan.nose_z(it[3])
-              posts << [it[0], poly.tangent(it[2] + (it.equal?(pc[0]) ? 0.01 : -0.01)), zb, it[1]]
-            end
-            p0 = pc[0][2]; p1 = pc[-1][2]
-            (0...plan.treads).each do |k|
-              next unless (k + 1) % every == 0
-              a = keys[k]; b = keys[k + 1]
-              next if b - a < 1.0
-              pm = (a + b) / 2.0
-              next if pm <= p0 + 1.0 || pm >= p1 - 1.0
-              z_rail = interp_piece(pc, pm)
-              base_z = on_str ? (Stringers.top_at(plan, p, which, pm) || z_rail - rh + over) : (k + 1) * plan.h
-              posts << [poly.at(pm), poly.tangent(pm), base_z, z_rail]
-            end
-            posts.each do |pt, tg, zb, zr|
-              nrm = side > 0 ? Geo.right(tg) : Geo.left(tg)
-              c = Geo.add(pt, Geo.mul(nrm, off))
-              sq = square(c, tg, ps)
-              top = zr - r
-              next if top - zb < 2
-              prism(grp.entities, sq, top, zb, m)
-            end
+        rr = Railing.compute(plan, p)
+        plan.warnings.concat(rr[:warnings].reject { |w| plan.warnings.include?(w) })
+        r = p['rail_d'] / 2.0
+        m = mat(:holz)
+        rr[:sides].each do |sd|
+          nm = sd[:which] == :outer ? 'außen' : 'innen'
+          sd[:rails].each do |path|
+            g = tube(grp.entities, path, r, 12, m)
+            g.name = "Handlauf #{nm}" if g
+          end
+          sd[:posts].each do |q|
+            g = prism(grp.entities, square(q[:pt], q[:tg], q[:s]), q[:ztop], q[:zbot], m)
+            g.name = "Pfosten #{nm} (#{q[:role]})" if g
+          end
+          sd[:bars].each do |q|
+            next if q[:ztop] - q[:zbot] < 2
+            g = prism(grp.entities, square(q[:pt], q[:tg], q[:d]), q[:ztop], q[:zbot], m)
+            g.name = "Stab #{nm}" if g
           end
         end
       end
