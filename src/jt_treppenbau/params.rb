@@ -200,7 +200,11 @@ module JTools
                 'Bei geschwungener Wangenform verläuft auch der Handlauf geschwungen und wird als Platte aus dem Vollen gefräst.' },
         { key: 'rail_d', label: 'Handlaufbreite (Seiten ohne Wange)', type: 'number', default: 4.5, unit: 'cm', group: 'Geländer', min: 2, step: 0.5 },
         { key: 'newel_s', label: 'Pfostenquerschnitt (Antritt, Austritt, Laufwechsel)', type: 'number', default: 9.0, unit: 'cm', group: 'Geländer', min: 2, step: 0.5,
-          help: 'Pfosten stehen am Antritt, am Austritt und an jedem Laufwechsel (Ecke bzw. Zwischenpodest). Der Handlauf läuft von Pfosten zu Pfosten.' },
+          help: 'Pfosten stehen am Antritt, am Austritt und an jedem Laufwechsel (Ecke bzw. Zwischenpodest). Der Handlauf läuft von Pfosten zu Pfosten. ' \
+                'Bei eingestemmter und aufgesattelter Wange stehen Antritts- und Austrittspfosten in der Treppe, die Wange stößt an den Pfosten.' },
+        { key: 'rail_mid', label: 'Zwischenpfosten ab Lauflänge', type: 'number', default: 200.0, unit: 'cm', group: 'Geländer', min: 0, step: 10,
+          help: 'Ist ein Feld zwischen zwei Pfosten (im Grundriss) länger, kommt in die Mitte ein Zwischenpfosten. Er steht auf der Wange bzw. Stufe ' \
+                'und endet unter dem Handlauf (der Handlauf läuft durch). 0 = keine Zwischenpfosten.' },
         { key: 'bal_shape', label: 'Stabform', type: 'select', default: 'quadrat', group: 'Geländer',
           options: [['quadrat', 'quadratisch'], ['rund', 'rund']],
           help: 'Bohrung für die Stäbe (Wange bzw. Trittstufe): Ø = Durchmesser bzw. Kantenlänge – quadratische Stäbe brauchen am Ende einen runden Zapfen.' },
@@ -209,12 +213,14 @@ module JTools
         { key: 'bal_dia', label: 'Stab: Durchmesser', type: 'number', default: 2.5, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
           help: 'Runde Stäbe. 0 = keine Stäbe.' },
         { key: 'bal_gap', label: 'Lichter Stababstand (höchstens)', type: 'number', default: 12.0, unit: 'cm', group: 'Geländer', min: 4, step: 0.5,
-          help: 'DIN 18065: höchstens 12 cm. Die Stäbe werden zwischen den Pfosten gleichmäßig verteilt.' },
+          help: 'DIN 18065: höchstens 12 cm. Die Stäbe stehen im Stufenraster: jede Stufe wird in gleiche Felder geteilt, der Stab steht in Feldmitte ' \
+                '(bei gleich tiefen Stufen überall gleicher Abstand). Lücken an den Pfosten werden aufgefüllt.' },
         { key: 'bal_edge', label: 'Stab: Mindestabstand zum Stufenrand', type: 'number', default: 3.0, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
           help: 'Nur wo die Stäbe auf den Stufen stehen (aufgesattelte Wange, freitragend): Abstand Stabkante – Stufenvorderkante bzw. ' \
                 'Vorderkante der nächsten Stufe. Je Stufe wird die Tiefe in gleiche Felder geteilt, der Stab steht in Feldmitte.' },
         { key: 'bal_depth', label: 'Stab: Einlasstiefe (Bohrung)', type: 'number', default: 3.0, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
-          help: 'Eingestemmte Wange: lotrechte Bohrung in die Wangenoberkante (schräg zur Wangenkante). Auf Stufen: Bohrung in die Trittstufe (höchstens Stufendicke − 1 cm).' },
+          help: 'Eingestemmte Wange: lotrechte Bohrung in die Wangenoberkante (schräg zur Wangenkante). Auf Stufen: Bohrung in die Trittstufe (höchstens Stufendicke − 1 cm). ' \
+                'Oben: lotrechte Bohrung in die Handlauf-Unterkante (höchstens Handlaufhöhe − 1 cm).' },
         { key: 'rail_inset', label: 'Geländerabstand von der Laufkante', type: 'number', default: 5.0, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
           help: 'Lage der Pfosten- und Stabachse auf den Stufen (aufgesattelt, freitragend). Bei eingestemmten Wangen steht das Geländer mittig auf der Wange.' },
 

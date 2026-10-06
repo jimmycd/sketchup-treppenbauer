@@ -27,9 +27,9 @@ Params::ALL.each do |v|
         nturn = Railing.corners(sd[:poly]).size
         errs << "#{sd[:which]}: Ecken #{nturn}, Eckpfosten #{roles.count(:ecke)}" if !plan.spiral && roles.count(:ecke) != nturn
         # lichter Abstand
-        posts.each_cons(2) do |pa, pb|
-          ua = pa[:u] + pa[:s] / 2; ub = pb[:u] - pb[:s] / 2
-          bs = sd[:bars].select { |b| b[:u] > ua && b[:u] < ub }.sort_by { |b| b[:u] }
+        sd[:spans].each do |sp|
+          ua = sp[:ua]; ub = sp[:ub]
+          bs = (sd[:bars] + sd[:mids].map { |q| q.merge(d: q[:s]) }).select { |b| b[:u] > ua && b[:u] < ub }.sort_by { |b| b[:u] }
           e = [ua] + bs.flat_map { |b| [b[:u] - b[:d] / 2, b[:u] + b[:d] / 2] } + [ub]
           g = e.each_slice(2).map { |a, b| b - a }.max
           errs << format('%s: Lücke %.1f', sd[:which], g) if g > p['bal_gap'] + 0.05 && sd[:mount] == :wange
@@ -92,8 +92,46 @@ Params::ALL.each do |v|
           end
           errs << "#{sd[:which]}: Handlaufbreite" if sd[:mount] == :wange && (rl[:w] - p['str_t']).abs > 1e-6
         end
+        # Stäbe oben in den Handlauf gebohrt
+        rd = [p['bal_depth'], p['rail_hh'] - 1.0].min
         sd[:bars].each do |b|
-          errs << "#{sd[:which]}: Stab nicht am Handlauf" if (b[:ztop] - (Railing.rail_top(sd, b[:u]) - p['rail_hh'])).abs > 1e-6
+          errs << "#{sd[:which]}: Stab nicht im Handlauf" if (b[:ztop] - (Railing.rail_top(sd, b[:u]) - p['rail_hh'] + rd)).abs > 1e-6
+          errs << "#{sd[:which]}: Handlaufbohrung fehlt" unless b[:rdrill] && sd[:rails].any? { |rl| rl[:drills].any? { |h| h[:u] == b[:u] } }
+        end
+        # Handlauf endet an den Pfostenflächen (auch an Ecken, Achse versetzt)
+        sd[:rails].each_with_index do |rl, i|
+          [[rl[:pts][0], sd[:posts][i]], [rl[:pts][-1], sd[:posts][i + 1]]].each do |pt, q|
+            ax = q[:tg]; ay = Geo.left(ax); dd = Geo.sub(pt, q[:pt])
+            x = Geo.dot(dd, ax).abs; y = Geo.dot(dd, ay).abs; hs = q[:s] / 2
+            ok = ((x - hs).abs < 0.05 && y <= hs + 0.05) || ((y - hs).abs < 0.05 && x <= hs + 0.05)
+            errs << format('%s: Handlauf endet nicht am Pfosten %s (%.1f/%.1f)', sd[:which], q[:role], x, y) unless ok
+          end
+        end
+        # Zwischenpfosten: in jedem Feld länger als rail_mid, unter dem Handlauf,
+        # kein Stab im Pfosten
+        sd[:spans].each do |sp|
+          n = sd[:mids].count { |q| q[:u] > sp[:ua] && q[:u] < sp[:ub] }
+          errs << "#{sd[:which]}: Zwischenpfosten #{n}" if n != (sp[:ub] - sp[:ua] > p['rail_mid'] ? 1 : 0)
+        end
+        sd[:mids].each do |q|
+          errs << "#{sd[:which]}: Zwischenpfosten über Handlauf" if q[:ztop] > Railing.rail_top(sd, q[:u] + q[:s] / 2) - p['rail_hh'] + 1e-6 &&
+                                                                     q[:ztop] > Railing.rail_top(sd, q[:u] - q[:s] / 2) - p['rail_hh'] + 1e-6
+          errs << "#{sd[:which]}: Zwischenpfosten zu kurz" if q[:ztop] - q[:zbot] < 20
+          errs << "#{sd[:which]}: Stab im Zwischenpfosten" if sd[:bars].any? { |b| (b[:u] - q[:u]).abs < (q[:s] + b[:d]) / 2 }
+        end
+        # aufgesattelte Wange: Antritts-/Austrittspfosten in der Treppe, Wange
+        # beginnt bzw. endet an der Pfostenfläche
+        if Params.side_kind(p, sd[:which], plan.outer_side, !plan.spiral.nil?) == 'sattel'
+          a = sd[:posts][0]; e = sd[:posts][-1]
+          errs << "#{sd[:which]}: Antrittspfosten nicht in der Treppe" if (a[:u] - (sd[:keys][0] + a[:s] / 2)).abs > 1e-6
+          errs << "#{sd[:which]}: Austrittspfosten nicht in der Treppe" if (e[:u] - (sd[:keys][-1] - e[:s] / 2)).abs > 1e-6
+          sb = Stringers.compute(plan, p)[:sattel].select { |b| b[:which] == sd[:which] }
+          unless sb.empty?
+            first = sb.min_by { |b| b[:nr] }
+            dpt = Geo.sub(first[:origin], a[:pt])
+            errs << format('%s: aufgesattelte Wange beginnt nicht am Pfosten (%.2f)', sd[:which], Geo.dot(dpt, a[:tg]) - a[:s] / 2) if (Geo.dot(dpt, a[:tg]) - a[:s] / 2).abs > 0.05
+            errs << "#{sd[:which]}: Austrittspfosten über der Wangenunterkante" if e[:zbot] > Railing.sattel_bot_end(plan, p, sd[:which]) + 1e-6
+          end
         end
       end
       tag = "#{v} #{sl}/#{sr} #{dir}"
