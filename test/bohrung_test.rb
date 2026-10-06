@@ -59,8 +59,11 @@ cases = 0
         ([Struct.new(:placements).new(own)] + res.sheets).each_with_index do |sh, si|
           sh.placements.each do |pl|
             (pl.drills || []).each do |h|
-              nb += 1
-              errs << "#{pl.part.label}: Ø #{h[:d]}" if (h[:d] - dd * 10).abs > 1e-6
+              # Dübel Wange – Pfosten (Stirn, eigener Ø) – geprüft in pfosten_test
+              unless h[:what]
+                nb += 1
+                errs << "#{pl.part.label}: Ø #{h[:d]}" if (h[:d] - dd * 10).abs > 1e-6
+              end
               if h[:ang]
                 errs << "#{pl.part.label}: Ansatz nicht an der Kante (#{edge_dist(pl.poly, [h[:x], h[:y]]).round(2)} mm)" if edge_dist(pl.poly, [h[:x], h[:y]]) > 0.5
                 dv = Tcn.drill_dir(h)

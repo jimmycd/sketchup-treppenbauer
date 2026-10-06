@@ -81,6 +81,9 @@ module JTools
         (0...plan.treads).each do |k|
           reg = plan.region(lw[k], lw[k + 1] + ext).map(&:first)
           top = (k + 1) * h
+          # an den Geländerpfosten beschnitten (Stufe in der Tasche)
+          reg = Railing.clip_at_posts(plan, p, reg, top - d, top)
+          next if reg.size < 3
           g = prism(grp.entities, reg, top, top - d, m)
           g.name = plan.kinds[k] == :landing ? "Podest #{k + 1}" : "Stufe #{k + 1}" if g
         end
@@ -91,6 +94,8 @@ module JTools
           z0 = k * h
           z1 = (k + 1) * h - d
           next if z1 - z0 < 0.5
+          reg = Railing.clip_at_posts(plan, p, reg, z0, z1)
+          next if reg.size < 3
           g = prism(grp.entities, reg, z1, z0, m)
           g.name = "Setzstufe #{k + 1}" if g
         end
