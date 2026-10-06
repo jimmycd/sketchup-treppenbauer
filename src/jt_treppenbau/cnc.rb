@@ -508,7 +508,8 @@ module JTools
               label: lp.label, info: lp.part.info, thickness: lp.part.thickness, blank: lp.blank.map(&:round),
               outline: pg[:outline].map { |q| q.map { |v| v.round(1) } }, sides: 1, walls: [],
               runs: lp.split[:runs].size, split: lp.split[:x_t] ? lp.split[:x_t].round(1) : nil,
-              paths: pg[:ops].reject { |op| op[:cut] || op[:k] != :mill }.map { |op| op[:pts].map { |q| q.map { |v| v.round(1) } } }
+              paths: pg[:ops].reject { |op| op[:cut] || op[:k] != :mill }.map { |op| op[:pts].map { |q| q.map { |v| v.round(1) } } },
+              drills: (pg[:drills] || []).map { |h| [h[:x].round(1), h[:y].round(1), h[:d].round(1), h[:depth].round(1), h[:ang]] }
             }
           end,
           unplaced: res.unplaced.map { |p| { label: p.label, size: p.size.map(&:round), thickness: p.thickness } },

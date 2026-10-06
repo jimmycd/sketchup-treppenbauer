@@ -291,7 +291,7 @@ module JTools
                  comp: o['climb'] ? 1 : 2, cut: true, tab: true }
         faces = mark_h ? [] : hdr.map { |h| drill_face(h, ds, o['drill_clear'].to_f, o['hdrill_tool']) }
         { l: l, w: w, t: ds, title: part.kind == :stringer ? "#{part.label} (eingestemmt)" : part.label, comments: ["'Treppenbau #{part.label}"],
-          ops: ops, faces: faces, outline: poly }
+          ops: ops, faces: faces, outline: poly, drills: drills }
       end
 
       # Aufgesattelte Wange: Programm einer Seite (Wange3d::Prog) in allgemeiner
