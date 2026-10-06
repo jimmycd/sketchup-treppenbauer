@@ -154,7 +154,7 @@ module JTools
         o['drill_wange'] = 'bohren' unless %w[bohren markieren].include?(o['drill_wange'])
         nh = parts.sum { |pt| pt.drills.count { |h| h[:ang] } }
         if nh > 0 && o['drill_wange'] == 'bohren'
-          warnings << "#{nh} Bohrungen für Geländerstäbe in der Wangenoberkante (Bohraggregat, nach der Außenkontur): " \
+          warnings << "#{nh} waagerechte Bohrungen in den Wangen (Geländerstäbe in der Oberkante, Dübel in der Stirn; Bohraggregat, nach der Außenkontur): " \
                       'je Wange ein eigener Rohling; vor der Oberkante muss Platz für das Aggregat sein – Rohling-Zugabe prüfen oder „nur markieren“ wählen.'
         end
         (boards || []).each do |b|
@@ -333,6 +333,14 @@ module JTools
           end
           files << txt
         end
+        posts = res.parts.select { |pt| pt.ops && !pt.ops.empty? }
+        unless posts.empty?
+          txt = File.join(dir, "#{base}_Pfosten_Bearbeitung.txt")
+          File.open(txt, 'wb') do |io|
+            io.write(post_sheet(posts).join("\r\n").encode('Windows-1252', invalid: :replace, undef: :replace, replace: '_') + "\r\n")
+          end
+          files << txt
+        end
         csv = File.join(dir, "#{base}_Teileliste.csv")
         File.open(csv, 'wb') do |io|
           rows = [%w[Nr Teil Bezeichnung Staerke_mm Laenge_mm Breite_mm Flaeche_m2 Datei X_mm Y_mm Drehung]]
@@ -366,6 +374,31 @@ module JTools
         xmlst = Fraesliste.write(dir, base, files)
         files << xmlst if xmlst
         files
+      end
+
+      # Werkstattliste der Pfosten: Taschen (Stufen) und Bohrungen je Fläche
+      def post_sheet(posts)
+        lines = ['Geländerpfosten – Taschen und Bohrungen (mm)',
+                 'Fläche 1–4: Pfostenquerschnitt gegen den Uhrzeigersinn (von oben), Richtung in Klammern.',
+                 'a = Abstand von der linken Pfostenkante beim Blick auf die Fläche, z = Höhe ab Pfostenunterkante.',
+                 'Richtungen bei Eckpfosten bezogen auf den ankommenden Lauf. Bohrungen rechtwinklig zur Fläche.', '']
+        posts.each do |pt|
+          l, s = pt.size
+          lines << "#{pt.label}: #{pt.info} – Länge #{fmt(l, 0)} mm, Querschnitt #{fmt(s, 0)} × #{fmt(s, 0)} mm"
+          pt.ops.group_by { |o| o[:face_name] }.each do |fn, list|
+            lines << "  #{fn}"
+            list.each do |o|
+              lines << if o[:kind] == :pocket
+                         "    Tasche #{o[:what]}: a #{fmt(o[:a0])}–#{fmt(o[:a1])}, z #{fmt(o[:z0])}–#{fmt(o[:z1])}, Tiefe #{fmt(o[:depth])}"
+                       else
+                         "    Bohrung #{o[:what]}: a #{fmt(o[:a])}, z #{fmt(o[:z])}, Ø #{fmt(o[:d])}, Tiefe #{fmt(o[:depth])}" +
+                           (o[:into].to_f > 0 ? " (bis Taschengrund, in der Stufenstirn weiter #{fmt(o[:into])})" : '')
+                       end
+            end
+          end
+          lines << ''
+        end
+        lines
       end
 
       def fmt(v, dec = 1)
@@ -434,9 +467,15 @@ module JTools
         end
         dr = res.parts.flat_map(&:drills)
         unless dr.empty?
-          rows << ['Bohrungen Geländerstäbe', dr.size,
+          rows << ['Bohrungen (Geländerstäbe, Dübel)', dr.size,
                    dr.map { |h| "Ø #{fmt(h[:d])}" }.uniq.join(' / ') + ' mm' +
                    (dr.any? { |h| h[:ang] } ? (o['drill_wange'] == 'markieren' ? ', Wange markiert' : ', Wange mit Aggregat') : '')]
+        end
+        po = res.parts.select { |pt| pt.ops && !pt.ops.empty? }
+        unless po.empty?
+          rows << ['Pfosten mit Taschen/Bohrungen', po.size,
+                   "#{po.sum { |pt| pt.ops.count { |x| x[:kind] == :pocket } }} Taschen, " \
+                   "#{po.sum { |pt| pt.ops.count { |x| x[:kind] == :hole } }} Bohrungen (…_Pfosten_Bearbeitung.txt)"]
         end
         bs = res.boards || []
         unless bs.empty?

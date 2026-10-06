@@ -223,6 +223,18 @@ module JTools
                 'Oben: lotrechte Bohrung in die Handlauf-Unterkante (höchstens Handlaufhöhe − 1 cm).' },
         { key: 'rail_inset', label: 'Geländerabstand von der Laufkante', type: 'number', default: 5.0, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
           help: 'Lage der Pfosten- und Stabachse auf den Stufen (aufgesattelt, freitragend). Bei eingestemmten Wangen steht das Geländer mittig auf der Wange.' },
+        { key: 'post_pocket', label: 'Stufen im Pfosten: Taschentiefe', type: 'number', default: 1.5, unit: 'cm', group: 'Geländer', min: 0, step: 0.5,
+          help: 'Tritt- und Setzstufen (auch Wendel-/Drachenstufen) laufen in eine gefräste Tasche im Pfosten (Antritt, Austritt, Laufwechsel); ' \
+                'die Stufe wird auf das Taschenmaß zugeschnitten. 0 = Stufe endet stumpf an der Pfostenfläche.' },
+        { key: 'tread_fix', label: 'Stufe am Pfosten zusätzlich befestigen', type: 'select', default: 'schraube', group: 'Geländer',
+          options: [['schraube', 'Schraube von außen durch den Pfosten'], ['duebel', 'Dübel durch den Pfosten in die Stufenstirn'], ['keine', 'keine']],
+          help: 'Je Tasche eine Bohrung von der Gegenseite durch den Pfosten bis zum Taschengrund, mittig in Stufendicke und Taschenbreite. ' \
+                'Dübel: zusätzlich Bohrung in die Stufenstirn (Dübel-Bohrtiefe, von Hand).' },
+        { key: 'tread_fix_d', label: 'Schraube: Bohrung Ø', type: 'number', default: 0.8, unit: 'cm', group: 'Geländer', min: 0.3, step: 0.1 },
+        { key: 'dowel_d', label: 'Dübel Ø (Wange – Pfosten)', type: 'number', default: 1.0, unit: 'cm', group: 'Geländer', min: 0, step: 0.1,
+          help: 'Wangen werden mit den Pfosten verdübelt: Bohrungen in der Stirn des Wangenbretts (CNC, Bohraggregat) und im Pfosten, ' \
+                'je nach Wangenhöhe 2–4 Dübel, nicht in den Stufennuten. 0 = keine Dübel.' },
+        { key: 'dowel_depth', label: 'Dübel: Bohrtiefe je Teil', type: 'number', default: 4.0, unit: 'cm', group: 'Geländer', min: 0, step: 0.5 },
 
         # --- Darstellung ----------------------------------------------------
         { key: 'show_walkline', label: 'Gehlinie einzeichnen', type: 'bool', default: true, group: 'Darstellung' },

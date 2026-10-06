@@ -522,6 +522,283 @@ module JTools
             pts: us.map { |u| span_pt(sd, sp, u) }, tops: tops, bots: tops.map { |z| z - h }, drills: drills }
         end.compact
       end
+
+      # --- Stufen im Pfosten, Verbindungen ------------------------------------
+      #
+      # Die Stufen (auch Wendel-/Drachenstufen) und Setzstufen laufen um
+      # post_pocket in eine gefräste Tasche im Pfosten: der Stufenumriss wird
+      # am um post_pocket verkleinerten Pfostenquerschnitt beschnitten
+      # (post_pocket = 0: Stufe endet stumpf an der Pfostenfläche). Je Tasche
+      # wird die Stufe zusätzlich durch den Pfosten befestigt (tread_fix:
+      # Schraube bzw. Dübel von der Gegenseite bis in die Stufenstirn).
+      # Wangen und Pfosten werden verdübelt (dowel_d, dowel_depth je Teil).
+      # Pfostenflächen: Querschnitt gegen den Uhrzeigersinn, Fläche i von
+      # Ecke i nach Ecke i+1; Lage a = Abstand von der linken Kante beim Blick
+      # auf die Fläche, z ab Pfostenunterkante.
+
+      # Querschnitt eines Pfostens (gegen den Uhrzeigersinn) mit Kante s
+      def post_square(q, s = q[:s])
+        ax = q[:tg]; ay = Geo.left(ax); h = s / 2.0
+        [[-1, -1], [1, -1], [1, 1], [-1, 1]].map { |i, j| Geo.add(q[:pt], Geo.add(Geo.mul(ax, i * h), Geo.mul(ay, j * h))) }
+      end
+
+      # Flächen eines Pfostens: [{ a:, b:, dir:, n: (Außennormale) }]
+      def post_faces(q)
+        c = post_square(q)
+        (0..3).map do |i|
+          a = c[i]; b = c[(i + 1) % 4]; d = Geo.norm(Geo.sub(b, a))
+          { a: a, b: b, dir: d, n: Geo.right(d) }
+        end
+      end
+
+      def face_name(sd, q, i)
+        n = post_faces(q)[i][:n]
+        out = sd[:side] > 0 ? Geo.right(q[:tg]) : Geo.left(q[:tg])
+        nm = [[q[:tg], 'aufwärts'], [Geo.mul(q[:tg], -1.0), 'abwärts'], [out, 'außen'], [Geo.mul(out, -1.0), 'zur Treppe']]
+             .max_by { |v, _| Geo.dot(v, n) }[1]
+        "Fläche #{i + 1} (#{nm})"
+      end
+
+      # Pfosten, in die Stufen eingelassen werden (Antritt, Austritt,
+      # Laufwechsel; Zwischenpfosten stehen auf Wange bzw. Stufe): [[q, sd]]
+      def pocket_posts(plan, p)
+        return [] if p['rail'] == 'keins'
+        compute(plan, p)[:sides].flat_map { |sd| sd[:posts].map { |q| [q, sd] } }
+      end
+
+      # Stufen- bzw. Setzstufenumriss (Grundriss, cm) im Höhenbereich z0..z1 an
+      # den Pfosten beschnitten: die Stufe ragt nur durch die Flächen, durch
+      # die sie in den Pfosten läuft, um post_pocket hinein (Tasche); an
+      # Flächen, mit denen sie bündig abschließt, bleibt nichts im Pfosten.
+      def clip_at_posts(plan, p, poly, z0, z1)
+        e = [p['post_pocket'].to_f, 0.0].max
+        pocket_posts(plan, p).each do |q, _sd|
+          next if [z1, q[:ztop]].min - [z0, q[:zbot]].max < 0.1
+          faces = post_faces(q)
+          ent = (0..3).select { |i| face_intervals(faces[i], poly).any? { |a0, a1| a1 - a0 >= 0.3 } }
+          next if ent.empty?
+          cut = cut_rect(q, ent, e)
+          next unless cut
+          if ent.size == 4 && post_square(q).all? { |c| inside_poly?(poly, c) }
+            # Pfosten mitten in der Stufe bzw. im Podest: Durchbruch, kein Umriss
+            w = format('Geländerpfosten (%s) durchdringt %s bei Höhe %.1f cm – Ausschnitt %.1f × %.1f cm von Hand.',
+                       q[:role], z1 - z0 > p['tread_t'] + 0.5 ? 'eine Setzstufe' : 'eine Stufe bzw. ein Podest', z1, q[:s], q[:s])
+            ws = compute(plan, p)[:warnings]
+            ws << w unless ws.include?(w)
+            next
+          end
+          r = Geo.subtract_convex(poly, cut)
+          return r if r.size < 3
+          poly = r if Geo.signed_area(r).abs < Geo.signed_area(poly).abs - 1e-6
+        end
+        poly
+      end
+
+      # Pfostenquerschnitt ohne die Taschen (an den Flächen ent um e
+      # zurückgesetzt) – das wird aus der Stufe ausgeschnitten
+      def cut_rect(q, ent, e)
+        h = q[:s] / 2.0
+        # übrige Flächen minimal überstehend (bündige Stufenkanten sauber schneiden)
+        g = 0.05
+        y0 = ent.include?(0) ? -h + e : -h - g
+        x1 = ent.include?(1) ? h - e : h + g
+        y1 = ent.include?(2) ? h - e : h + g
+        x0 = ent.include?(3) ? -h + e : -h - g
+        return nil if x1 - x0 < 0.1 || y1 - y0 < 0.1
+        ax = q[:tg]; ay = Geo.left(ax)
+        [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map { |x, y| Geo.add(q[:pt], Geo.add(Geo.mul(ax, x), Geo.mul(ay, y))) }
+      end
+
+      def inside_poly?(poly, q)
+        c = false
+        poly.each_with_index do |a, i|
+          b = poly[i - 1]
+          c = !c if (a[1] > q[1]) != (b[1] > q[1]) && q[0] < (b[0] - a[0]) * (q[1] - a[1]) / (b[1] - a[1]) + a[0]
+        end
+        c
+      end
+
+      # Abschnitte [a0, a1] einer Pfostenfläche, durch die der Umriss poly in
+      # den Pfosten läuft (Prüfung knapp vor der Fläche)
+      def face_intervals(f, poly, off = 0.05)
+        a = Geo.add(f[:a], Geo.mul(f[:n], off)); b = Geo.add(f[:b], Geo.mul(f[:n], off))
+        d = Geo.sub(b, a); l = Geo.len(d)
+        ts = [0.0, 1.0]
+        poly.each_with_index do |p1, i|
+          e = Geo.sub(poly[(i + 1) % poly.size], p1)
+          den = Geo.cross(d, e)
+          next if den.abs < 1e-12
+          w = Geo.sub(p1, a)
+          t = Geo.cross(w, e) / den
+          v = Geo.cross(w, d) / den
+          ts << t if t > 0 && t < 1 && v >= -1e-9 && v <= 1 + 1e-9
+        end
+        res = []
+        ts.sort.each_cons(2) do |t0, t1|
+          next if t1 - t0 < 1e-6 || !inside_poly?(poly, Geo.lerp(a, b, (t0 + t1) / 2.0))
+          if res.any? && (res[-1][1] - t0 * l).abs < 1e-6
+            res[-1][1] = t1 * l
+          else
+            res << [t0 * l, t1 * l]
+          end
+        end
+        res
+      end
+
+      # Taschen und Befestigungsbohrungen der Pfosten.
+      # items: [[Umriss (beschnitten, Grundriss cm), z0, z1, Name]] (Tritt- und
+      # Setzstufen). Liefert { q.object_id => { q:, sd:, pockets: [], holes: [] } }
+      #   Tasche:  { face:, a0:, a1:, z0:, z1:, depth:, name: }
+      #   Bohrung: { face:, a:, z:, d:, depth:, what: } (depth bis Taschengrund
+      #            bzw. Bohrtiefe; rechtwinklig zur Fläche)
+      def post_joinery(plan, p, items)
+        e = [p['post_pocket'].to_f, 0.0].max
+        res = {}
+        pocket_posts(plan, p).each do |q, sd|
+          ent = res[q.object_id] = { q: q, sd: sd, pockets: [], holes: [] }
+          s = q[:s]
+          faces = post_faces(q)
+          items.each do |poly, z0, z1, name|
+            next if poly.size < 3 || [z1, q[:ztop]].min - [z0, q[:zbot]].max < 0.1
+            next if post_square(q).all? { |c| inside_poly?(poly, c) } # Durchbruch (Warnung)
+            zb = [z0, q[:zbot]].max - q[:zbot]; zt = [z1, q[:ztop]].min - q[:zbot]
+            mine = []
+            faces.each_with_index do |f, i|
+              face_intervals(f, poly).each do |a0, a1|
+                next if a1 - a0 < 0.3
+                mine << { face: i, a0: a0, a1: a1, z0: zb, z1: zt, depth: e, name: name }
+              end
+            end
+            ent[:pockets].concat(mine)
+            fix = tread_fix(p)
+            next unless fix && e > 0 && name.start_with?('Stufe', 'Podest') && zt - zb >= fix[:d] + 1.0
+            # eine Befestigung je Stufe und Pfosten: an der breitesten Tasche,
+            # von der Gegenfläche durch den Pfosten bis in die Stufenstirn
+            t = mine.max_by { |x| x[:a1] - x[:a0] }
+            next unless t && t[:a1] - t[:a0] >= 2.0 * fix[:d]
+            ent[:holes] << { face: (t[:face] + 2) % 4, a: s - (t[:a0] + t[:a1]) / 2.0, z: (zb + zt) / 2.0, d: fix[:d],
+                             depth: s - e, what: "#{fix[:what]} #{name}", into: fix[:into] }
+          end
+        end
+        Stringers.compute(plan, p)[:wange].each do |b|
+          [[:post0, false], [:post1, true]].each do |key, at_end|
+            ref = b[key]
+            next unless ref
+            ent = res.values.find { |x| x[:sd][:which] == b[:which] && x[:q][:role] == ref[:role] && (x[:q][:u] - ref[:u]).abs < 0.05 }
+            next unless ent
+            add_dowel_holes(ent, wange_end_pt(b, at_end, p['str_t'].to_f), at_end ? b[:dir] : Geo.mul(b[:dir], -1.0),
+                            wange_dowels(plan, p, b, at_end), p, "Wange #{b[:which] == :outer ? 'außen' : 'innen'}")
+          end
+        end
+        Stringers.compute(plan, p)[:sattel].each do |sb|
+          [[:post0, false], [:post1, true]].each do |key, at_end|
+            ref = sb[key]
+            next unless ref
+            ent = res.values.find { |x| x[:sd][:which] == sb[:which] && x[:q][:role] == ref }
+            next unless ent
+            pt = at_end ? Geo.add(sb[:origin], Geo.mul(sb[:dir], sb[:len])) : sb[:origin]
+            add_dowel_holes(ent, pt, at_end ? sb[:dir] : Geo.mul(sb[:dir], -1.0), sattel_dowels(p, sb, at_end), p,
+                            "aufgesattelte Wange #{sb[:which] == :outer ? 'außen' : 'innen'} #{sb[:nr]}")
+          end
+        end
+        res
+      end
+
+      # Befestigung der Stufe am Pfosten: { d:, what:, into: (Tiefe in die Stufe) } | nil
+      def tread_fix(p)
+        case p['tread_fix']
+        when 'schraube' then { d: p['tread_fix_d'].to_f, what: 'Schraube', into: 0.0 }
+        when 'duebel' then p['dowel_d'].to_f > 0 ? { d: p['dowel_d'].to_f, what: 'Dübel', into: p['dowel_depth'].to_f } : nil
+        end
+      end
+
+      # Dübelbohrungen im Pfosten gegenüber einem Wangenende (pt: Wangenmitte
+      # am Ende, dir: Richtung in den Pfosten)
+      def add_dowel_holes(ent, pt, dir, zs, p, name)
+        return if zs.empty?
+        q = ent[:q]
+        faces = post_faces(q)
+        i = (0..3).min_by { |j| Geo.dot(faces[j][:n], dir) }
+        a = Geo.dot(Geo.sub(pt, faces[i][:a]), faces[i][:dir])
+        zs.each do |z|
+          ent[:holes] << { face: i, a: a, z: z - q[:zbot], d: p['dowel_d'].to_f, depth: p['dowel_depth'].to_f,
+                           what: "Dübel #{name}" }
+        end
+      end
+
+      # Mitte der eingestemmten Wange am Brettanfang bzw. -ende (Grundriss)
+      def wange_end_pt(b, at_end, t)
+        base = at_end ? b[:base][-1] : b[:base][0]
+        Geo.add(base, Geo.mul(Stringers.seg_n(b, b[:side]), t / 2.0))
+      end
+
+      # Höhen der Dübel (absolut, cm) zwischen lo und hi, außerhalb der Zonen bad
+      def dowel_zs(lo, hi, bad, d)
+        return [] if hi < lo
+        ok = ->(z) { z >= lo - 1e-6 && z <= hi + 1e-6 && bad.none? { |a, c| z > a && z < c } }
+        n = hi - lo < 3.0 * d ? 1 : [[((hi - lo) / 12.0).floor + 1, 2].max, 4].min
+        want = n == 1 ? [(lo + hi) / 2.0] : (0...n).map { |i| lo + (hi - lo) * i / (n - 1) }
+        cand = (0..((hi - lo) / 0.5).floor).map { |j| lo + j * 0.5 } + [hi]
+        zs = []
+        want.each do |z|
+          c = cand.select(&ok).min_by { |x| (x - z).abs }
+          zs << c if c && zs.none? { |x| (x - c).abs < 3.0 * d }
+        end
+        zs.sort
+      end
+
+      # Dübel am Ende eines eingestemmten Wangenbretts (Höhen absolut, cm):
+      # ganz im Brett (Rand max(2 Ø, 3 cm) auf der ganzen Bohrtiefe), nicht in
+      # den Nuten der Tritt- und Setzstufen
+      def wange_dowels(plan, p, b, at_end)
+        d = p['dowel_d'].to_f; dep = p['dowel_depth'].to_f
+        return [] if d <= 0 || dep <= 0
+        u = at_end ? b[:u1] : b[:u0]
+        u2 = at_end ? [u - dep, b[:u0]].max : [u + dep, b[:u1]].min
+        mrg = [2.0 * d, 3.0].max
+        lo = [u, u2].map { |x| [Stringers.bot(b, x), 0.0].max }.max + mrg
+        hi = [u, u2].map { |x| Stringers.top(b, x) }.min - mrg
+        bad = groove_zones(plan, p, b[:which], [u, u2].min - 1.0, [u, u2].max + 1.0)
+              .map { |z0, z1| [z0 - d / 2.0 - 0.5, z1 + d / 2.0 + 0.5] }
+        dowel_zs(lo, hi, bad, d)
+      end
+
+      # Dübel am Ende einer aufgesattelten Wange (Höhen absolut, cm)
+      def sattel_dowels(p, sb, at_end)
+        d = p['dowel_d'].to_f; dep = p['dowel_depth'].to_f
+        return [] if d <= 0 || dep <= 0
+        x = at_end ? sb[:len] : 0.0
+        x2 = at_end ? [sb[:len] - dep, 0.0].max : [dep, sb[:len]].min
+        zr = [x, x2].map do |xx|
+          zs = []
+          sb[:poly].each_with_index do |a, i|
+            c = sb[:poly][i - 1]
+            if (a[0] - c[0]).abs < 1e-9
+              zs.push(a[1], c[1]) if (a[0] - xx).abs < 1e-6
+            elsif (a[0] - xx) * (c[0] - xx) <= 0
+              zs << a[1] + (xx - a[0]) / (c[0] - a[0]) * (c[1] - a[1])
+            end
+          end
+          zs.minmax
+        end
+        return [] if zr.any? { |lo, _| lo.nil? }
+        mrg = [2.0 * d, 3.0].max
+        dowel_zs(zr.map(&:first).max + mrg, zr.map(&:last).min - mrg, [], d)
+      end
+
+      # Höhenbereiche der Stufennuten einer Wangenseite im Bereich ua..ub (u)
+      def groove_zones(plan, p, which, ua, ub)
+        keys = plan.keys_for(which)
+        d = p['tread_t']; nos = p['nosing']; ts = p['riser_t']
+        ext = nos + (p['risers'] ? ts : 0.0)
+        res = []
+        (0...plan.treads).each do |k|
+          top = (k + 1) * plan.h
+          res << [top - d, top] if keys[k] - 0.01 < ub && keys[k + 1] + ext + 0.01 > ua
+          res << [k * plan.h, top - d] if p['risers'] && keys[k] + nos < ub && keys[k] + nos + ts > ua
+        end
+        res
+      end
     end
   end
 end
