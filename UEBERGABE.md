@@ -31,9 +31,15 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 | `nesting.rb` | Raster-Nesting mit Bitmasken je Zeile, 0/180° (Faser) oder 0/90/180/270° |
 | `tcn.rb` | TCN-Writer (Kopf identisch dxf4tcn), Gravur r0/r1, Nuten (Bahnen aus `parts.rb`), Außenkontur zuletzt |
 | `cnc.rb` + `cnc_dialog.rb` + `ui/cnc.html` | CNC-Dialog, Plattenvorschau, Export TCN je Platte + Teileliste.csv |
+| `fraesliste.rb` | Fräsliste `Liste_<Name>.xmlst` für TpaCAD aus den geschriebenen TCN (wie csv2tcn) |
 
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
+
+## Version 2.14.0 – Fräsliste (.xmlst) für TpaCAD
+- **`Fraesliste.write(dir, base, files)`** (`fraesliste.rb`, ohne SketchUp-API), aufgerufen am Ende von `Cnc.export`: schreibt `Liste_<base>.xmlst` mit einer `<Row>` je geschriebener `.tcn` in Export-Reihenfolge. Format wie csv2tcn/`Liste_Regalbad.xmlst`: UTF-8 mit BOM, CRLF, `NAME`/`FileName` = voller Pfad in Anführungszeichen (Windows-`\`), `REPETITIONS` 1, `TIME` 00:00:00, Offsets 0.
+- Werte nur aus der TCN-Datei selbst (`Fraesliste.header`): `LENGTH/HEIGHT/THICKNESS` = `DL/DH/DS`, `FIELD` aus dem Kopfzeilen-Feld `s<n>` über `FIELD_BY_HEADER` (s1 → 9 wie csv2tcn; s3 → 3, s6 → 6 **ungeprüft**). So bleibt die Liste richtig, egal welche Teile der Export als TCN schreibt.
+- Test: `test/fraesliste_test.rb`.
 
 ## Version 2.13.0 (Branch `claude/stufen-in-pfosten-gtu3d7`) – Stufen im Pfosten eingelassen, Dübel Wange – Pfosten
 - **Tasche im Pfosten:** Tritt- und Setzstufen (auch Wendel-/Drachenstufen) laufen um `post_pocket` (1,5 cm, 0 = stumpf an der Pfostenfläche) in eine Tasche der Pfosten (Antritt, Austritt, Laufwechsel; Zwischenpfosten stehen weiter auf Wange/Stufe). `Railing.clip_at_posts`: nur an den Flächen, durch die die Stufe in den Pfosten läuft, bleibt `post_pocket` stehen (`cut_rect`, Ausschnitt mit `Geo.subtract_convex`); bündige Flächen (z. B. Vorderkante am Antritt) bleiben bündig. Gilt für 3D (`Builder.build_treads`) und Frästeile (`Parts.tread_poly`, Setzstufen gekürzt). Pfosten mitten in Stufe/Podest (aufgesattelt/frei am Podest): kein Umriss, Warnung „durchdringt … Ausschnitt von Hand“.

@@ -370,6 +370,9 @@ module JTools
           io.write(text.encode('Windows-1252', invalid: :replace, undef: :replace, replace: '_'))
         end
         files << csv
+        # Fräsliste für TpaCAD aus den tatsächlich geschriebenen TCN-Dateien
+        xmlst = Fraesliste.write(dir, base, files)
+        files << xmlst if xmlst
         files
       end
 
