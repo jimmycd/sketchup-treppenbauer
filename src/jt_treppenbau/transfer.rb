@@ -113,17 +113,26 @@ module JTools
         [exts, exit_land]
       end
 
-      # Lage der Wendelung (m1, m2) aus den Drachenstufen
+      # Lage der Wendelung (m1, m2) und der Ecken in den Drachenstufen (kite_pos, kite_pos2)
       def winder_m(plan)
         ks = Layout.kite_steps(plan).map { |k| k - 1 }.sort
+        fr = Layout.kite_fracs(plan).map(&:last)
+        kp = ->(f) { f.nil? || (f - 0.5).abs < 1e-6 ? 0.0 : r4(f * 100.0) }
         case plan.variant
-        when 'l_wendel' then { 'm1' => ks[0] }
+        when 'l_wendel' then { 'm1' => ks[0], 'kite_pos' => kp.(fr[0]) }
         when 'u_wendel'
-          return {} unless ks.size == 2
-          { 'm1' => (ks[1] - ks[0]).even? ? (ks[0] + ks[1]) / 2 : (ks[0] + ks[1] + 1) / 2 }
+          return {} unless ks.size == 2 && fr.size == 2
+          if fr.all? { |f| (f - 0.5).abs < 1e-6 }
+            { 'm1' => (ks[1] - ks[0]).even? ? (ks[0] + ks[1]) / 2 : (ks[0] + ks[1] + 1) / 2, 'kite_pos' => 0.0 }
+          else
+            # Wendelmitte liegt bei m1·a + off (0 ≤ off < a), siehe Layout.build_flights
+            ws = plan.corners.map { |c| c[:w] }.compact.sort
+            mid = (ws[0] + ws[-1]) / 2.0
+            { 'm1' => (mid / plan.a + 1e-9).floor, 'kite_pos' => kp.(fr[0]) }
+          end
         when 'z_wendel'
           return {} unless ks.size == 2
-          { 'm1' => ks[0], 'm2' => ks[1] - ks[0] }
+          { 'm1' => ks[0], 'm2' => ks[1] - ks[0], 'kite_pos' => kp.(fr[0]), 'kite_pos2' => kp.(fr[1]) }
         else {}
         end
       end
@@ -159,7 +168,7 @@ module JTools
         if (p['angle_left'].to_f - 90).abs > 0.01 || (p['angle_right'].to_f - 90).abs > 0.01
           notes << 'Schräge Wände lassen sich ohne Raum nicht nachbilden (Treppe wird rechtwinklig).'
         end
-        relax(plan, q, p, %w[nv gl r1 r2 m1 m2 landing_len b a_user n_steps])
+        relax(plan, q, p, %w[nv gl r1 r2 m1 m2 kite_pos kite_pos2 landing_len b a_user n_steps])
       end
 
       # Werte, die vorher automatisch waren, wieder auf automatisch setzen,
@@ -220,7 +229,7 @@ module JTools
         full = Params.normalize(full)
         return q if same?(plan, q)
         return full unless same?(plan, full)
-        relax(plan, full, p, %w[nv m2 m1 r2 r1 landing_len gl b a_user n_steps])
+        relax(plan, full, p, %w[nv m2 m1 kite_pos kite_pos2 r2 r1 landing_len gl b a_user n_steps])
       end
 
       # Treppenloch so legen, dass seine Kante genau am Austritt (bzw. am Ende des

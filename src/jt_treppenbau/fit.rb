@@ -548,11 +548,12 @@ module JTools
           out
         end
 
-        # Lage der Wendelung so, dass jede Ecke genau mittig in einer Stufe liegt
-        # (Drachenstufe). Freiheitsgrade: Gehlinienabstand gl (wirkt nur in den
-        # Ecken) und – wo ein Ende frei ist – der Auftritt bzw. die Lage.
-        # Sind Antritt und Austritt fest und lässt sich das nicht vereinbaren, wird
-        # der Antritt so wenig wie möglich verschoben (Warnung).
+        # Lage der Wendelung: in jeder Ecke eine Drachenstufe. Bevorzugt liegt die Ecke
+        # genau mittig in ihrer Stufe, wenn das ohne Änderung der Gehlinie geht.
+        # Sonst (Layout::KITE_KEEP_GL) bleibt die Gehlinie und die Ecke liegt außermittig
+        # (mind. KITE_F_AUTO vom Stufenrand); erst danach wird die Gehlinie angepasst
+        # bzw. – wenn Antritt und Austritt fest sind und nichts passt – der Antritt so
+        # wenig wie möglich verschoben (Warnung).
         # Rückgabe: [gl, a, g1, g3, Antrittsverschiebung] oder nil
         def kite_layout(n, a)
           ntr = n - 1
@@ -568,7 +569,7 @@ module JTools
           g30, g3k = @Glast ? glast_lin : [nil, nil]
           len = ->(gl) { gl * lsum + gmid } # Gehlinie in der Wendelung (Ecke 1 Anfang bis letzte Ecke Ende)
           sols = []
-          shifted = false
+          asym = nil
           if g1f && g30
             unless two
               # a = (g1 + g3(gl) + gl·L)/ntr  und  g1 + gl·L/2 = (m + ½)·a
@@ -583,36 +584,63 @@ module JTools
                 sols << [gl, (g1f + g3 + l0 * gl) / ntr, g1f, g3, 0.0]
               end
             end
-            if sols.empty?
-              shifted = true
-              sols = one_end(ntr, a, lf, gmid, g30, g3k, false, inb, [dlo, dhi])
-              sols.each { |x| x[2] = ntr * x[1] - x[3] - len.(x[0]); x[4] = x[2] - g1f }
-            end
+            g3 = g30 + g3k * tgt
+            asym = [tgt, (g1f + g3 + len.(tgt)) / ntr, g1f, g3, 0.0]
           elsif g1f
             sols = one_end(ntr, a, lf, gmid, g1f, 0.0, true, inb)
             sols.each { |x| x[3] = ntr * x[1] - x[2] - len.(x[0]) }
+            asym = [tgt, a, g1f, ntr * a - g1f - len.(tgt), 0.0]
           elsif g30
             sols = one_end(ntr, a, lf, gmid, g30, g3k, false, inb)
             sols.each { |x| x[2] = ntr * x[1] - x[3] - len.(x[0]) }
+            g3 = g30 + g3k * tgt
+            asym = [tgt, a, ntr * a - g3 - len.(tgt), g3, 0.0]
           else
+            m1 = @p['m1'].to_i > 0 ? @p['m1'].to_i : (@opt['m1'] || ((ntr - 1) / (@v == 'z_wendel' ? 3.0 : 2.0)).round)
             gl = tgt
             if two
               sg = Layout.gl_for_corners(a, (lf[0] + lf[1]) / 2.0, gmid, @b, tgt)
-              return nil unless sg
-              gl = sg[0]
+              if sg
+                gl = sg[0]
+                g1 = (m1 + 0.5) * a - gl * lf[0] / 2.0
+                sols << [gl, a, g1, ntr * a - g1 - len.(gl), 0.0]
+              end
+              f1 = Layout.kite_pair_frac(tgt * (lf[0] + lf[1]) / 2.0 + gmid, a)
+              g1 = (m1 + f1) * a - tgt * lf[0] / 2.0
+              asym = [tgt, a, g1, ntr * a - g1 - len.(tgt), 0.0]
+            else
+              g1 = (m1 + 0.5) * a - gl * lf[0] / 2.0
+              sols << [gl, a, g1, ntr * a - g1 - len.(gl), 0.0]
             end
-            m1 = @p['m1'].to_i > 0 ? @p['m1'].to_i : (@opt['m1'] || ((ntr - 1) / (@v == 'z_wendel' ? 3.0 : 2.0)).round)
-            g1 = (m1 + 0.5) * a - gl * lf[0] / 2.0
-            sols << [gl, a, g1, ntr * a - g1 - len.(gl), 0.0]
           end
-          sols.select! { |_gl, aa, g1, g3, _s| g1 > -1e-6 && g3 > -1e-6 && aa >= 10 }
-          sols.select! { |_gl, aa, *_r| (aa - @a_fixed).abs < 0.05 } if @a_fixed
+          valid = lambda do |list|
+            list = list.select { |_gl, aa, g1, g3, _s| g1 > -1e-6 && g3 > -1e-6 && aa >= 10 }
+            list = list.select { |_gl, aa, *_r| (aa - @a_fixed).abs < 0.05 } if @a_fixed
+            list
+          end
+          sols = valid.(sols)
+          asym = nil if asym && (!inb.(tgt) || valid.([asym]).empty? || kite_cen(asym[0], asym[1], asym[2], lf, gmid) < Layout::KITE_F_AUTO - 1e-9)
+          rank = ->(list) { list.min_by { |gl, aa, *_r| [(aa - a).abs.round(3), (gl - tgt).abs] } }
+          keep = sols.select { |gl, *_r| (gl - tgt).abs < 0.05 }
+          return rank.(keep) unless keep.empty?
+          @kite_asym = !asym.nil?
+          return asym if asym && Layout::KITE_KEEP_GL && !@kite_mid
+          return rank.(sols) unless sols.empty?
+          return asym if asym
+          return nil unless g1f && g30
+          # Antritt und Austritt fest, nichts passt: Antritt so wenig wie möglich verschieben
+          sols = one_end(ntr, a, lf, gmid, g30, g3k, false, inb, [dlo, dhi])
+          sols.each { |x| x[2] = ntr * x[1] - x[3] - len.(x[0]); x[4] = x[2] - g1f }
+          sols = valid.(sols)
           return nil if sols.empty?
-          if shifted
-            sols.min_by { |gl, aa, _g1, _g3, sh| sh.abs + 0.5 * (aa - a).abs + 0.3 * (gl - tgt).abs }
-          else
-            sols.min_by { |gl, aa, *_r| [(aa - a).abs.round(3), (gl - tgt).abs] }
-          end
+          sols.min_by { |gl, aa, _g1, _g3, sh| sh.abs + 0.5 * (aa - a).abs + 0.3 * (gl - tgt).abs }
+        end
+
+        # Kleinster Abstand einer Ecke vom Rand ihrer Stufe (Anteil des Auftritts)
+        def kite_cen(gl, a, g1, lf, gmid)
+          ws = [g1 + gl * lf[0] / 2.0]
+          ws << g1 + gl * lf[0] + gmid + gl * lf[1] / 2.0 if lf.size == 2
+          ws.map { |w| Layout.kite_centrality(w, a) }.min
         end
 
         # Gehlinienlänge vom Austritt bis zur letzten Ecke als lineare Funktion von gl
@@ -683,9 +711,24 @@ module JTools
         def build(n, a, opt)
           return nil if a < 10
           @opt = opt || {}
+          @kite_asym = false
           case @v
           when 'gerade', 'gerade_podest' then build_straight(n, a)
-          else build_turning(n, a)
+          else
+            plan = build_turning(n, a)
+            # Drachenstufe außermittig unsauber -> wie bisher mit angepasster Gehlinie versuchen
+            if winder? && Layout::KITE_KEEP_GL && @kite_asym && (plan.nil? || Layout.kite_bad?(plan))
+              @kite_mid = true
+              alt = begin
+                build_turning(n, a)
+              rescue PlanError
+                nil
+              ensure
+                @kite_mid = false
+              end
+              plan = alt if alt && (plan.nil? || !Layout.kite_bad?(alt))
+            end
+            plan
           end
         rescue PlanError => e
           @fails << e.message
@@ -835,7 +878,7 @@ module JTools
             exit_landing(t, depths, kinds)
           else # Wendelstufen
             sol = kite_layout(n, a)
-            return fail!('Drachenstufen lassen sich nicht mittig auf die Ecken legen.') unless sol
+            return fail!('Drachenstufen lassen sich nicht auf die Ecken legen.') unless sol
             gl, a, g1, g3, @kite_shift = sol
             g1 = [g1, 0.0].max
             t = Turtle.new(@b, gl, -1, sub(@c[0], mul(d1, g1)), d1)

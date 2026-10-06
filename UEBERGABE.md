@@ -1,10 +1,11 @@
-# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.7.1, 05.10.2026 – Branch `main`)
+# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.8.0, 05.10.2026 – Branch `drachenstufe`, PR gegen `main`)
 
 ## Was es ist
 SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Export nach TCN (TpaCAD), angelehnt an Jürgens Plugin **dxf4tcn**.
 
 ## Dateien in diesem Ordner (E:\sketchup-treppe)
-- `treppenbau_2.7.1.rbz` – **aktuelle Version 2.7.1** (Stand `main`, enthält 2.7.0 + Commit „schräge wangen“); `treppenbau_2.7.0.rbz` = 2.7.0 vor diesem Commit, `treppenbau_2.6.0.rbz` = 2.6.0 (2.5.0, 2.4.0 und 2.3.0 nur noch in der Git-Historie; ab 2.3.0 Versionsnummer im Dateinamen; `_9` = 2.0.0, `_8` = 1.5.3, `_1` = 1.1.0 … `_4` = 1.4.0, `_5` = 1.5.0, `_6` = 1.5.1, `_7` = 1.5.2)
+- `treppenbau_2.8.0.rbz` – **Version 2.8.0** (Branch `drachenstufe`: Drachenstufe außermittig, Schenkel ≥ 2 cm)
+- `treppenbau_2.7.1.rbz` – Version 2.7.1 (Stand `main`, enthält 2.7.0 + Commit „schräge wangen“); `treppenbau_2.7.0.rbz` = 2.7.0 vor diesem Commit, `treppenbau_2.6.0.rbz` = 2.6.0 (2.5.0, 2.4.0 und 2.3.0 nur noch in der Git-Historie; ab 2.3.0 Versionsnummer im Dateinamen; `_9` = 2.0.0, `_8` = 1.5.3, `_1` = 1.1.0 … `_4` = 1.4.0, `_5` = 1.5.0, `_6` = 1.5.1, `_7` = 1.5.2)
 - `src/` + `test/` – **Arbeitskopie** der Quellen (Stand 2.7.1, `main`), wird vom Entwickler-Loader direkt geladen
 - `jt_aa_treppenbau_dev.rb` – Entwickler-Loader (in den SketchUp-Plugins-Ordner kopieren, lädt aus `E:\sketchup-treppe\src`)
 - `treppenbau_quellen_tests_9.zip` – Quellcode + Tests Stand 2.0.0 (`_8` = 1.5.3, `_7` = 1.5.2, `_6` = 1.5.1, `_5` = 1.5.0, ohne Nummer = 1.4.0)
@@ -33,6 +34,21 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
+
+## Version 2.8.0 (Branch `drachenstufe`) – Drachenstufe darf außermittig liegen, Schenkel innen ≥ 2 cm
+Vorgabe Jürgen (05.10.2026): Die Drachenstufe muss nicht halb/halb auf der Ecke liegen, aber an der Innenseite muss der kleinere Schenkel mindestens 2 cm lang sein.
+- **Regel neu (`geometry.rb`):** In jeder Ecke liegt eine Drachenstufe, die Ecke liegt irgendwo innerhalb der Stufe (Anteil f des Auftritts auf der Gehlinie vor der Ecke). Die Kanten der Drachenstufe treffen die Innenkante bei s_Ecke − Q·f und s_Ecke + Q·(1 − f), die Innenseite wird also im selben Verhältnis geteilt wie die Gehlinie. Beide Schenkel innen und außen ≥ `KITE_HOOK_MIN` = 2 cm (vorher 5 cm bzw. `min_inner`/2, oder 0 = Spitze genau in der Innenecke).
+  - Mittige Ecke (f = ½): Q wie bisher (bevorzugt `KITE_HOOK_PREF` = 5 cm bzw. `min_inner`/2 je Schenkel). Nur wo bisher Q = 0 herauskam (Spitze in der Innenecke, Innenauftritt der Drachenstufe 0), gibt es jetzt Schenkel ≥ 2 cm.
+  - Außermittige Ecke: Q zwischen 2 cm/min(f, 1 − f) und dem natürlichen Wert so, dass der schmalste Innenauftritt der Wendelung möglichst breit wird (`kite_min_inner`).
+  - `kite_breakpoints` nimmt die tatsächlichen Stufenkanten aus `lines_w` (`kite_edges`) statt w_Ecke ± a/2; `finish_flights` hält die ganze Drachenstufe in der Wendelzone (`reach`). Prüfung `kite_errors` ohne „mittig/symmetrisch“, Info „Drachenstufe(n) (Lage der Ecke im Auftritt): Nr. 6 (Ecke bei 28 %)“ (bei mittigen Ecken wie bisher).
+- **Neue Parameter (nur „aus Parametern“):** `kite_pos` „Drachenstufe: Lage der Ecke im Auftritt“ (%, 0 = automatisch/mittig; U-Treppe: erste Ecke, die zweite folgt aus Auge und Gehlinie), `kite_pos2` (dreiläufig, zweite Ecke). Standard 0 → L- und dreiläufige Treppen unverändert mittig.
+- **Gehlinie halten (`KITE_KEEP_GL = true`):** Bisher wurde die Gehlinie (U-Treppe; Raum-Modus) verschoben bzw. der Antritt verschoben, nur damit die Ecken mittig liegen. Jetzt bleibt die Gehlinie und die Ecke liegt außermittig, wenn mittig nicht ohne Verschieben geht:
+  - U-Treppe frei: `kite_pair_frac` legt beide Ecken möglichst weit von den Stufenkanten (mind. 25 %). Wird die Drachenstufe dabei unsauber oder ein Innenauftritt ≤ 0, wie bisher mit angepasster Gehlinie (`build_winder`, Rückfall).
+  - Raum (`fit.rb#kite_layout`): Reihenfolge mittig ohne Gehlinienänderung → außermittig mit Ziel-Gehlinie (Ecke mind. `KITE_F_AUTO` = 25 % vom Stufenrand) → mittig mit angepasster Gehlinie → Antritt verschieben (wie bisher). Rückfall auf mittig, wenn außermittig unsauber (`Room#build`). Die Meldung „Drachenstufen lassen sich nicht mittig auf die Ecken legen“ entfällt in den meisten Fällen.
+  - Zum Umschalten auf das alte Verhalten (Gehlinie anpassen) genügt `KITE_KEEP_GL = false`.
+- **Umschalten Raum ↔ Parameter (`transfer.rb`):** übernimmt `kite_pos`/`kite_pos2` (U: `m1` aus der Wendelmitte), beide werden beim Zurückschalten wieder automatisch, wenn sich nichts ändert.
+- **Aufgesattelte Wange (`stringers.rb`):** zwei Folgefehler bei kurzen Schenkeln dicht an der Ecke behoben: (1) Stumpfer Stoß: Ausklinkung lag auf einer Fläche hinter dem Brettende → Flächenumriss fehlte (senkrechter Schnitt, Durchdringung); jetzt fällt der Punkt auf die Ausklinkung. (2) Restbreite: Anschluss der Unterkante an der Ecke (`sat_slope`) prüft jetzt auch die vordere Lage der Ausklinkung (`corners_r`, `r[:cr]`), wo die Unterkante fällt.
+- **Tests:** `kite_check.rb` prüft Schenkel ≥ 2 cm innen/außen, Teilung innen = Gehlinie, mittig nur bei L/dreiläufig frei ohne Vorgabe; `kite_test.rb` zusätzlich 160 Fälle mit `kite_pos`/`kite_pos2` (Lage exakt), Fälle mit Innenauftritt ≤ 0 (U ohne Auge) werden gezählt statt geprüft. `switch_test.rb` + 4 freie, 2 Raum-Fälle mit außermittiger Drachenstufe.
 
 ## Version 2.7.1 (treppenbau_2.7.1.rbz, 05.10.2026) – Fräser Außenkontur automatisch, Wangen-Ablauf geändert
 Inhalt = Commit `af8b154` „schräge wangen“ (Jürgen, per PR #2 in `main` gemergt) + Versionsnummer. Die .rbz 2.7.0 enthielt diesen Stand noch nicht.
@@ -131,7 +147,7 @@ Inhalt = Commit `af8b154` „schräge wangen“ (Jürgen, per PR #2 in `main` ge
 - `cnc.rb` gibt `pocket_d` an `Parts.collect` weiter.
 - Tests: neu `test/pk_check.rb` (240 Bretter: Bahn nie näher als r an der Nutkontur), `pk_dump.rb` + `pk_plot.py` + `pk_cov.py` (Abdeckung: kein Restmaterial außer Fräserradius in den Ecken), `tcnplot.py` (TCN-Datei plotten). build/stringer/kite/cnc/tcncheck ohne Fehler.
 
-## Neu in 1.5.1 – Drachenstufen immer mittig auf der Ecke
+## Neu in 1.5.1 – Drachenstufen immer mittig auf der Ecke (ab 2.8.0 gelockert, siehe oben)
 - **Regel:** Jede Ecke einer gewendelten Treppe (L/U/dreiläufig, frei und Raum-Modus) liegt genau in der Mitte einer Stufe (Drachenstufe). Die beiden Kanten der Drachenstufe sind spiegelgleich zur Eckdiagonale (Innenecke → Außenecke).
 - **Keine kleinen Haken:** Die Kanten der Drachenstufe treffen die Innenkante bei s_Ecke ∓ q. q ist entweder 0 (Spitze genau in der Innenecke = klassischer Drachen) oder mindestens 5 cm bzw. `min_inner`/2 (`Layout::KITE_HOOK_MIN`). Keine andere Stufe läuft über eine Ecke.
 - Zuordnung s(w) je Wendelzone mit eigenen Stützpunkten bei w_Ecke ± a/2 (`Layout.kite_breakpoints`), Turtle-Ecken merken sich ihre Gehlinienmitte (`corners[:w]`). Die frühere Suche nach einem Versatz („Stufenkante nahe an Ecke“) entfällt.
@@ -192,6 +208,6 @@ Alles wurde nur außerhalb von SketchUp geprüft. Erster echter Test steht aus.
 - Test in SketchUp + TpaCAD, Rückmeldung Fräser-Ø und Nutseite der Wangen
 - Gemischte Treppe (Podest + Wendelstufen) fehlt
 - Wangenenden an schräger Austrittswand: im Grundriss schräg, im CNC-Teil rechtwinklig (Gehrung von Hand)
-- Sattelwangen an Ecken stumpf gestoßen (keine Gehrung); Unterkante des oberen Bretts kann an der Ecke einen Knick haben
+- Sattelwangen: Unterkante des oberen Bretts kann an der Ecke einen Knick haben (Gehrung ist seit 2.7.0 Standard)
 - Raum: Treppenloch nur rechteckig/achsparallel; dreiläufig mit nur einer Wand nutzt die Raumgrenze als Anschlag
 - Neue Treppe wird im Ursprung eingefügt (Raum-Modus: Ursprung = vordere linke Raumecke)

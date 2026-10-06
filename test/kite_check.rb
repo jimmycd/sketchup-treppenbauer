@@ -1,9 +1,10 @@
-# Prüft Drachenstufen: jede Ecke liegt mittig in genau einer Stufe, keine kleinen Haken.
+# Prüft Drachenstufen: jede Ecke liegt in genau einer Stufe, an Innen- und Außenecke
+# beide Schenkel mind. qmin (2 cm). mid: true -> Ecke zusätzlich mittig und symmetrisch.
 module KiteCheck
   include JTools::Treppenbau
   module_function
   # Rückgabe: Liste von Fehlertexten
-  def errors(plan, qmin = 4.99)
+  def errors(plan, qmin = 1.99, mid: false)
     errs = []
     return errs if plan.corners.nil? || plan.corners.empty?
     f = plan.walk.length / plan.lines_w[-1]
@@ -16,14 +17,17 @@ module KiteCheck
         next
       end
       wm = (lw[k] + lw[k + 1]) / 2.0
-      errs << format('Ecke %d: Drachenstufe nicht mittig (%.2f cm)', ci + 1, wm - c[:w]) if (wm - c[:w]).abs > 0.02
+      errs << format('Ecke %d: Drachenstufe nicht mittig (%.2f cm)', ci + 1, wm - c[:w]) if mid && (wm - c[:w]).abs > 0.02
       l0 = plan.line(lw[k]); l1 = plan.line(lw[k + 1])
       q0 = c[:s] - l0[:s]; q1 = l1[:s] - c[:s]
-      errs << format('Ecke %d: Innenseite unsymmetrisch (%.2f / %.2f)', ci + 1, q0, q1) if (q0 - q1).abs > 0.05
-      [q0, q1].each { |q| errs << format('Ecke %d: kleiner Haken innen %.2f cm', ci + 1, q) if q > 0.05 && q < qmin }
+      errs << format('Ecke %d: Innenseite unsymmetrisch (%.2f / %.2f)', ci + 1, q0, q1) if mid && (q0 - q1).abs > 0.05
+      [q0, q1].each { |q| errs << format('Ecke %d: kleiner Schenkel innen %.2f cm', ci + 1, q) if q < qmin }
+      # Innenseite im selben Verhältnis geteilt wie die Gehlinie
+      f = (c[:w] - lw[k]) / (lw[k + 1] - lw[k])
+      errs << format('Ecke %d: Teilung innen %.3f ≠ Gehlinie %.3f', ci + 1, q0 / (q0 + q1), f) if q0 + q1 > 0.1 && (q0 / (q0 + q1) - f).abs > 0.002
       errs << format('Ecke %d: Innenecke nicht in der Drachenstufe (%.2f / %.2f)', ci + 1, q0, q1) if q0 < -0.05 || q1 < -0.05
       o0 = c[:t] - l0[:t]; o1 = l1[:t] - c[:t]
-      [o0, o1].each { |o| errs << format('Ecke %d: kleiner Haken außen %.2f cm', ci + 1, o) if o < qmin }
+      [o0, o1].each { |o| errs << format('Ecke %d: kleiner Schenkel außen %.2f cm', ci + 1, o) if o < qmin }
     end
     # Auftritt auf der Gehlinie = a (keine stille Umskalierung)
     if plan.kinds.all? { |k| k == :step }
