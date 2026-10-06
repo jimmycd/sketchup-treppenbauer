@@ -232,10 +232,17 @@ module JTools
             cu = [wa, wb].map { |w| cross_u(plan, b, w, e, nrm) }
             # nur Stufen, die die Wangenfläche dieses Bretts treffen
             fa, fb = cu.map(&:first).minmax
-            next if [fb, p1].min - [fa, p0].max < 0.05
+            # Prüfung im ursprünglichen Bereich (ohne Verlängerung über die Ecke)
+            r0 = [p0, b[:ru0] || p0].max; r1 = [p1, b[:ru1] || p1].min
+            next if [fb, r1].min - [fa, r0].max < 0.05
             a, bb = cu.flatten.minmax
+            # über die Ecke verlängertes Brett: Nut nur bis zur Einstandstiefe
+            # in die Verlängerung (dort liegt das andere Brett an)
+            a = [a, p0 + b[:ext0] - e].max if b[:ext0].to_f > 0
+            bb = [bb, p1 - b[:ext1] + e].min if b[:ext1].to_f > 0
+            next if bb - a < 0.01
             # ganz unterhalb des Bretts (über die Ecke laufende Stufe am Eckpfosten)
-            ua = [fa, p0].max; ub = [fb, p1].min
+            ua = [fa, r0].max; ub = [fb, r1].min
             next if z0 > 0.05 && z1 <= [Stringers.bot(b, ua), Stringers.bot(b, ub)].min + 0.05
             xa, xb = [mapx.(a), mapx.(bb)].minmax
             za = z0 * MM; zb = z1 * MM

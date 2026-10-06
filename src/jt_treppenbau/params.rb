@@ -187,10 +187,6 @@ module JTools
         { key: 'sat_rest', label: 'Restbreite unter der Ausklinkung', type: 'number', default: 12.0, unit: 'cm', group: 'Tragkonstruktion', min: 4, step: 0.5, constr: ['wange'], side: 'sattel',
           help: 'Rechtwinklig gemessen vom inneren Eckpunkt der Ausklinkungen bis zur Wangenunterkante.' },
         { key: 'sat_inset', label: 'Stufenüberstand seitlich über aufgesattelter Wange', type: 'number', default: 3.0, unit: 'cm', group: 'Tragkonstruktion', min: 0, step: 0.5, constr: ['wange'], side: 'sattel' },
-        { key: 'sat_joint', label: 'Ecken der aufgesattelten Wange', type: 'select', default: 'gehrung', group: 'Tragkonstruktion', constr: ['wange'], side: 'sattel',
-          options: [['gehrung', 'auf Gehrung'], ['stumpf', 'stumpf gestoßen']],
-          help: 'Wo zwei Wangenbretter an einer Ecke zusammentreffen: Gehrung (Stoß auf der Winkelhalbierenden) oder stumpf ' \
-                '(unteres Brett läuft durch, oberes stößt an). Die Brettenden sind in beiden Fällen schräg und passgenau.' },
         { key: 'holm_w', label: 'Holmbreite', type: 'number', default: 12.0, unit: 'cm', group: 'Tragkonstruktion', min: 4, step: 1, constr: ['holm'] },
         { key: 'holm_h', label: 'Holmhöhe (lotrecht)', type: 'number', default: 24.0, unit: 'cm', group: 'Tragkonstruktion', min: 8, step: 1, constr: ['holm'] },
         { key: 'slab_t', label: 'Laufplattendicke', type: 'number', default: 16.0, unit: 'cm', group: 'Tragkonstruktion', min: 8, step: 1, constr: ['massiv'] },

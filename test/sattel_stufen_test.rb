@@ -73,7 +73,7 @@ end
 
 fails = 0; n = 0; falz = 0
 (ARGV[0] ? [ARGV[0]] : %w[gerade kurve]).each do |form|
-  (ARGV[1] ? [ARGV[1]] : %w[gehrung stumpf]).each do |joint|
+  (ARGV[1] ? [ARGV[1]] : %w[stumpf]).each do |joint|
     Params::NOSPIRAL.each do |v|
       [{}, { 'fit_mode' => 'raum', 'space_l' => 350, 'space_w' => 260, 'angle_left' => 84 },
        { 'fit_mode' => 'raum', 'space_l' => 400, 'space_w' => 300, 'angle_left' => 100, 'angle_right' => 80 }].each do |extra|

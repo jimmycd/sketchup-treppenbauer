@@ -131,21 +131,10 @@ module JTools
         st = p['str_t']
         cnt = Hash.new(0)
         r[:wange].each do |b|
-          base, tops, bots = Stringers.wange_band(b)
-          nrm = nil
-          if b[:tp] || base.size > 2
-            # Zwischenpunkte auf geradem Brett (geschwungen bzw. Bodenschnitt) –
-            # Normalen zwischen den Endnormalen (Gehrung) linear verteilen, damit
-            # die Rückseite nicht in die Gehrung zurückläuft
-            pn = b[:side] > 0 ? Geo.right(b[:dir]) : Geo.left(b[:dir])
-            e0 = b[:n0] || pn; e1 = b[:n1] || pn
-            l = Geo.dist(base[0], base[-1])
-            nrm = base.map do |q|
-              t = l < 1e-9 ? 0.0 : Geo.dist(base[0], q) / l
-              Geo.add(Geo.mul(e0, 1 - t), Geo.mul(e1, t))
-            end
-          end
-          g = band(grp.entities, base, tops, bots, b[:side], 0.0, st, m, [b[:n0], b[:n1]], nrm)
+          # zwei Flächenumrisse: stumpfe Stöße und schräge Enden als senkrechte
+          # Ebenen, Ober-/Unterseite rechtwinklig zur Brettfläche
+          origin, dir, fa, fb = Stringers.wange_faces(b, st)
+          g = lprism(grp.entities, origin, dir, fa, fb, st, m)
           cnt[b[:which]] += 1
           g.name = "Wange #{b[:which] == :outer ? 'außen' : 'innen'} #{cnt[b[:which]]}" if g
         end

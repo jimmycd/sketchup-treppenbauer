@@ -9,7 +9,7 @@ src = File.read(File.join(__dir__, 'build_test.rb'))
 eval(src[/def leaf_groups.*?\nend\n/m]); eval(src[/def volume.*?\nend\n/m])
 fails = 0; total = 0; n = 0
 %w[gerade kurve].each do |form|
-  %w[gehrung stumpf].each do |joint|
+  %w[stumpf].each do |joint|
     Params::NOSPIRAL.each do |v|
       [{}, { 'fit_mode' => 'raum', 'space_l' => 350, 'space_w' => 260, 'angle_left' => 84 },
        { 'fit_mode' => 'raum', 'space_l' => 400, 'space_w' => 300, 'angle_left' => 100, 'angle_right' => 80 }].each do |extra|
