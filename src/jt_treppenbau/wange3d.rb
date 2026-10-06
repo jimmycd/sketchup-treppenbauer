@@ -36,14 +36,16 @@ module JTools
       FORMAT_OFF = 5.0   # Rohteil je Seite größer als das Formatmaß (nur Wenden)
       REST_T = 10.0      # Reststärke der Außenkontur auf Seite 1 (nur Wenden)
 
-      Job = Struct.new(:label, :info, :t, :blank, :programs, :notes, :outline, :walls, :sb, :sb_ctx) do
+      # long: überlang (Cnc long_mode 'drehen') – kein Formatieren, die Enden
+      #       liegen am Anschlag; splits: { Seite => Lauf.split-Ergebnis }
+      Job = Struct.new(:label, :info, :t, :blank, :programs, :notes, :outline, :walls, :sb, :sb_ctx, :long, :splits) do
         def wenden?
           programs.size > 1
         end
 
-        # Versatz Rohteil -> Formatmaß auf Seite 1 (nur Wenden)
+        # Versatz Rohteil -> Formatmaß auf Seite 1 (nur Wenden, nicht überlang)
         def raw_off
-          wenden? ? FORMAT_OFF : 0.0
+          wenden? && !long ? FORMAT_OFF : 0.0
         end
 
         # Rohteilmaß (vor dem Formatieren)
@@ -150,6 +152,8 @@ module JTools
           w[:u_top] = [u_up, u_dn]                             # Lage oben/unten auf Seite 1
         end
         wenden = o['sat_wenden'] && ws.any? { |w| w[:side] == 2 }
+        # überlang: Rohteil länger als der Verfahrweg – nicht formatieren
+        jb.long = o['long_mode'].to_s == 'drehen' && bl + (wenden ? 2 * FORMAT_OFF : 0.0) > o['mach_l'].to_f
         mode = o['sat_mode'].to_s == 'markieren' ? :mark : :mill
         s1 = Prog.new(1, nil, [], [], {})
         s2 = wenden ? Prog.new(2, nil, [], [], {}) : nil
@@ -194,7 +198,7 @@ module JTools
         if s2
           # Seite 1: zuerst formatieren, Außenkontur nur bis Reststärke;
           # Seite 2: Außenkontur durch die Reststärke, vor den Schrägen
-          s1.ops.unshift([:format, [[0.0, 0.0], [bl, 0.0], [bl, bw], [0.0, bw]]])
+          s1.ops.unshift([:format, [[0.0, 0.0], [bl, 0.0], [bl, bw], [0.0, bw]]]) unless jb.long
           bi = back_idx(ring, ntop)
           if bi
             fi = (bi.last...ring.size).to_a + (0..bi.first).to_a
@@ -207,7 +211,11 @@ module JTools
         end
         jb.programs << s1
         jb.programs << s2 if s2
-        if s2
+        if s2 && jb.long
+          jb.notes << "#{jb.label}: Rohteil #{bl.round} × #{bw.round} mm (überlang, nicht formatiert – Bezug sind die Rohkanten); " +
+                      (bi ? 'Seite 1: Stufenseite und Enden durchgefräst, Rücken bleibt stehen' : "Seite 1: Außenkontur bis #{REST_T.round} mm Reststärke")
+          jb.notes << "#{jb.label}: wenden (um die Y-Achse) – Seite 2 (#{bi ? 'Rücken fräsen' : 'Kontur durchfräsen'}, Schrägen)"
+        elsif s2
           jb.notes << "#{jb.label}: Rohteil #{(bl + 2 * FORMAT_OFF).round} × #{(bw + 2 * FORMAT_OFF).round} mm, " \
                       "Seite 1 formatiert auf #{bl.round} × #{bw.round} mm; " +
                       (bi ? 'Stufenseite und Enden durchgefräst, Rücken bleibt stehen' : "Außenkontur bis #{REST_T.round} mm Reststärke")

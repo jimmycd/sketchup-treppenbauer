@@ -35,6 +35,17 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
 
+## Version 2.11.0 – überlange Wangen: zwei Läufe, dazwischen drehen
+- **Maschine:** Verfahrweg X 3200 mm, TpaCAD nimmt keine TCN mit DL > 3200 mm an, Überstand nur nach rechts. Strategie (Doc „Lange Wangen auf 3-m-CNC – Wendestrategie“): Lauf A mit Ende A am linken X-Anschlag und Kante 1 am vorderen Y-Anschlag; Wange 180° in der Ebene drehen; Lauf B mit Ende B am selben Anschlag und Kante 1 am hinteren Y-Anschlag. Die Rohbreite kürzt sich heraus, nur die Rohlänge muss stimmen.
+- **Neues Modul `lauf.rb`** (ohne SketchUp-API): allgemeine Programmform (Bahnen, Bohrungen, Hilfsflächen), `Lauf.split` teilt bei x_T in der Überlappungszone mit größtem Abstand zu Bohrungen, Gravur, Markierungen und Schrägen; Außenkonturen werden geteilt und je `long_overlap` überlappend gefräst, Nuten nur, wenn sie durchlaufen (Tritt- + Setzstufen). Lauf B: x' = L − x, y' = W − y, Hilfsflächen starr mitgedreht. Haltestege (`tab_n`/`tab_w`/`tab_h`) im zuerst gefrästen Lauf jeder Seite.
+- `Tcn.build_job` läuft jetzt über `Lauf.from_job` + `Tcn.build_prog` (Ausgabe bytegleich wie 2.10.0).
+- **Eingestemmte Wangen**, die nicht auf die Rohplatte passen, bekommen einen eigenen Rohling (`blank_margin` ringsum) statt „nicht platziert“: `…_Wange_WA1.tcn` bzw. `…_Wange_WA1_A.tcn` + `_B.tcn`.
+- **Aufgesattelte Wangen** über 3200 mm: `…_Seite1_A/B.tcn` (mit Wenden auch `Seite2_A/B`, Reihenfolge = alphabetisch). Überlang wird nicht formatiert (`Job#long`, Bezug Rohkanten).
+- Einrichtblatt in `…_Wangen_Nacharbeit.txt` (Rohlänge, Teilung, Anschläge, Reihenfolge, Haltestege); Vorschau zeigt die Teilung.
+- Neue CNC-Optionen: `long_mode` (`drehen` | `aus` = Verhalten wie 2.10.0), `mach_l` 3200, `long_overlap` 10, `tab_n` 3, `tab_w` 20, `tab_h` 4.
+- **TpaCAD ungeprüft:** wie Lauf B den hinteren Anschlag als Bezug bekommt (derzeit DH = Rohbreite, y' = W − y, Kommentarzeile „Bezug hinten links“); Haltestege als eigene Bahnstücke mit geringerer Tiefe.
+- Tests: neu `test/lauf_test.rb` (4 Formen × Seitenkombinationen × Wenden × fräsen/markieren × 2 Höhen).
+
 ## Version 2.10.0 (Branch `claude/gelaenderstaebe-rund-quadratisch-efegi4`) – Geländerstäbe rund oder quadratisch, Bohrungen im TCN
 - **Neue Parameter:** `bal_shape` „Stabform“ (`quadrat` | `rund`, Standard `quadrat` → alte Treppen unverändert), `bal_d` heißt jetzt „Stab: Kantenlänge“ (nur quadratisch), neu `bal_dia` „Stab: Durchmesser“ (2,5 cm, nur rund). `Params.bar_size(p)` liefert Form und Maß; Stab-Hash in `Railing` hat `shape:`.
 - **3D:** runde Stäbe als 16-Eck (`Builder#circle`), quadratische wie bisher.
