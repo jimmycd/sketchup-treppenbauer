@@ -148,7 +148,8 @@ module JTools
         base = base_name
         files = Cnc.export(target, base, res, o)
         tcns = files.select { |f| f.end_with?('.tcn') }
-        msg = "#{tcns.size} TCN-Datei(en) + Teileliste in #{target} gespeichert."
+        liste = files.find { |f| f.end_with?('.xmlst') }
+        msg = "#{tcns.size} TCN-Datei(en) + Teileliste#{liste ? " + Fräsliste #{File.basename(liste)}" : ''} in #{target} gespeichert."
         js("CNC.status(#{JSON.generate(msg)}, 'ok')")
         Sketchup.status_text = "Treppenbau: #{msg}"
         open_in_tpacad(tcns.first) if o['open_tpa'] && tcns.first

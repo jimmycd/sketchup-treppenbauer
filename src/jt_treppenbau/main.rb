@@ -13,7 +13,7 @@ module JTools
     # Untermodule in Ladereihenfolge. Mit `load` statt `require`, damit
     # „Treppenbau neu laden“ den geänderten Code ohne Neustart übernimmt.
     def self.module_files
-      %w[params geometry fit transfer stringers railing builder dialog parts nesting tcn lauf wange3d cnc cnc_dialog]
+      %w[params geometry fit transfer stringers railing builder dialog parts nesting tcn lauf wange3d fraesliste cnc cnc_dialog]
     end
 
     def self.load_modules

@@ -1,6 +1,6 @@
 require File.expand_path('su_mock', __dir__)
 $LOAD_PATH.unshift File.expand_path('../src', __dir__)
-%w[params geometry fit stringers builder parts nesting tcn wange3d cnc].each { |f| require "jt_treppenbau/#{f}" }
+%w[params geometry fit stringers builder parts nesting tcn wange3d fraesliste cnc].each { |f| require "jt_treppenbau/#{f}" }
 include JTools::Treppenbau
 require 'json'
 p = Params.normalize(Params.defaults.merge('variant' => ARGV[0], 'direction' => 'rechts', 'risers' => true, 'side_left' => 'sattel', 'side_right' => 'sattel'))
