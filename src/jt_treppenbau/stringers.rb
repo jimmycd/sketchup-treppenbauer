@@ -828,6 +828,7 @@ module JTools
             if sh > 0 && b[:u1] - b[:u0] - sh > 2.0
               shift_start(b, sh)
               b[:n0] = nil
+              b[:post0] = { u: u, role: :antritt }
             end
           when :austritt
             b = bl[-1]
@@ -835,6 +836,7 @@ module JTools
             if sh < 0 && b[:u1] - b[:u0] + sh > 2.0
               shift_end(b, sh)
               b[:n1] = nil
+              b[:post1] = { u: u, role: :austritt }
             end
           when :ecke, :podest
             corner = q[:role] == :ecke
@@ -844,7 +846,11 @@ module JTools
             end.min_by { |j| (bl[j][:ru1] - (corner ? u : u - s / 2.0)).abs }
             next unless i
             ok = corner ? post_corner(bl[i], bl[i + 1], t, s) : post_inline(bl[i], bl[i + 1], u, s)
-            done[i] = true if ok
+            next unless ok
+            done[i] = true
+            # Bretter, die am Pfosten enden (Dübel Wange – Pfosten)
+            bl[i][:post1] = { u: u, role: q[:role] }
+            bl[i + 1][:post0] = { u: u, role: q[:role] }
           end
         end
         # verbleibende Ecken (ohne Pfosten): stumpf, unteres Brett gewinnt
@@ -1219,8 +1225,14 @@ module JTools
           # (wie bei der eingestemmten Wange), die Wange stößt an den Pfosten
           if !recs.empty? && p['rail'] != 'keins' && Railing.sides(plan, p).include?(which)
             va, vb = sat_post_cut(plan, p, which, sp, side)
-            recs[0][:a] = [recs[0][:a], va].max if va && va < recs[0][:b] - 2.0
-            recs[-1][:b] = [recs[-1][:b], vb].min if vb && vb > recs[-1][:a] + 2.0
+            if va && va < recs[0][:b] - 2.0
+              recs[0][:a] = [recs[0][:a], va].max
+              recs[0][:post0] = :antritt
+            end
+            if vb && vb > recs[-1][:a] + 2.0
+              recs[-1][:b] = [recs[-1][:b], vb].min
+              recs[-1][:post1] = :austritt
+            end
           end
           no = 0
           recs.each do |r|
@@ -1263,7 +1275,7 @@ module JTools
             o = Geo.add(sp.at(r[:v0]), Geo.mul(r[:dir], v0 - r[:v0]))
             faces = sat_face_polys(sp, r, top, bot, cuts, clines, eline, v_end, t, obst)
             sb = { which: which, side: side, origin: o, dir: r[:dir], len: v1 - v0,
-                   poly: poly, t: t, nr: no }
+                   poly: poly, t: t, nr: no, post0: r[:post0], post1: r[:post1] }
             if faces
               sb[:ntop] = faces.pop
               sb[:faces] = faces.map { |fp| fp.map { |v, z| [v - v0, z] } }

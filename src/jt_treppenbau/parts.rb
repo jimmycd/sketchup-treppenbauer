@@ -7,7 +7,9 @@
 #   Setzstufen           – Faser entlang der Länge
 #   Wangen               – abgewickelt, Faser entlang der Wange; mit Nuten
 #                          (Einstand) für Tritt- und Setzstufen
-#   Pfosten / Stäbe      – Zuschnitt (Länge × Querschnitt)
+#   Pfosten / Stäbe      – Zuschnitt (Länge × Querschnitt); Pfosten mit
+#                          Taschen (Stufen) und Bohrungen (Dübel, Schrauben)
+#                          je Fläche in part.ops (Liste für die Werkstatt)
 #   Handlauf             – nur gerade Stücke
 #   Bohrungen (drills)   – Geländerstäbe: lotrecht in Wangenoberkante bzw.
 #                          Trittstufe; je Bohrung { x:, y:, depth:, d:, ang: }
@@ -19,7 +21,7 @@
 module JTools
   module Treppenbau
     class Part
-      attr_accessor :id, :label, :kind, :thickness, :poly, :pockets, :pocket_depth, :info, :pocket_paths, :drills
+      attr_accessor :id, :label, :kind, :thickness, :poly, :pockets, :pocket_depth, :info, :pocket_paths, :drills, :ops
 
       def initialize(kind, label, thickness, poly, pockets = [], pocket_depth = 0.0, info = '')
         @kind = kind
@@ -31,6 +33,7 @@ module JTools
         @info = info
         @pocket_paths = []
         @drills = []
+        @ops = nil # Pfosten: Taschen und Bohrungen je Fläche (Railing.post_joinery, mm)
       end
 
       def area
@@ -73,7 +76,7 @@ module JTools
         end
         if p['rail'] != 'keins'
           if opts[:posts]
-            parts.concat(posts(plan, p))
+            parts.concat(posts(plan, p, st_sides, einstand))
             rb = round_bars(plan, p)
             unless rb.empty?
               warnings << format('Runde Geländerstäbe werden nicht aus der Platte gefräst: %d Stück Ø %s mm, Längen %s mm (Zuschnitt vom Rundstab).',
@@ -88,6 +91,9 @@ module JTools
         if cons == 'holm'
           warnings << 'Holm (Mittelholm) wird nicht exportiert (Stahl bzw. Kantholz).'
         end
+        if p['rail'] != 'keins'
+          Railing.compute(plan, p)[:warnings].each { |w| warnings << w if w.include?('durchdringt') && !warnings.include?(w) }
+        end
         parts.each_with_index { |pt, i| pt.id = i + 1 }
         [parts, warnings]
       end
@@ -101,7 +107,7 @@ module JTools
         res = []
         nr = 0
         (0...plan.treads).each do |k|
-          poly = extended_region(plan, lw[k], [lw[k + 1] + ext, plan.wtot].min, st_sides, einstand)
+          poly = tread_poly(plan, p, k, st_sides, einstand)
           l = plan.line(lw[k])
           landing = plan.kinds[k] == :landing
           nr += 1 unless landing
@@ -115,9 +121,34 @@ module JTools
                           landing ? 'Podest' : "Stufe #{k + 1}")
           part.drills = holes.each_with_index.map { |q, i| { x: hp[i][0][0], y: hp[i][0][1], depth: q[:depth] * MM, d: q[:d] * MM, ang: nil } }
           part.info += ", #{part.drills.size} Bohrungen (Geländerstäbe)" unless part.drills.empty?
+          fix = Railing.tread_fix(p)
+          raw = extended_region(plan, lw[k], [lw[k + 1] + ext, plan.wtot].min, st_sides, einstand)
+          if fix && fix[:into] > 0 && Geo.signed_area(poly).abs < Geo.signed_area(raw).abs - 1e-4
+            part.info += format(', Stirnbohrung Ø %g mm × %g mm für Dübel am Pfosten (von Hand)', fix[:d] * MM, fix[:into] * MM)
+          end
           res << part
         end
         res
+      end
+
+      # Umriss der Trittstufe k (cm, Grundriss, mit Einstand), an den
+      # Geländerpfosten beschnitten (Stufe in der Tasche)
+      def tread_poly(plan, p, k, st_sides, einstand)
+        lw = plan.lines_w
+        ext = p['nosing'] + (p['risers'] ? p['riser_t'] : 0.0)
+        top = (k + 1) * plan.h
+        poly = extended_region(plan, lw[k], [lw[k + 1] + ext, plan.wtot].min, st_sides, einstand)
+        Railing.clip_at_posts(plan, p, poly, top - p['tread_t'], top)
+      end
+
+      # Setzstufe k: Grundriss (cm, ohne Einstand) an den Pfosten beschnitten
+      # und Höhenbereich; nil = keine
+      def riser_poly(plan, p, k)
+        wa = plan.lines_w[k] + p['nosing']
+        z0 = k * plan.h; z1 = (k + 1) * plan.h - p['tread_t']
+        return nil if z1 - z0 < 0.5
+        reg = plan.region(wa, wa + p['riser_t']).map(&:first)
+        [reg, Railing.clip_at_posts(plan, p, reg, z0, z1), z0, z1]
       end
 
       # Bohrungen für Geländerstäbe auf Stufe k (cm, Grundriss)
@@ -139,6 +170,13 @@ module JTools
           len += einstand if st_sides.include?(:inner) && plan.inner.length > 0
           hgt = (plan.h - p['tread_t']) * MM
           next if hgt < 5
+          # an den Pfosten gekürzt (Tasche): Länge des beschnittenen Umrisses
+          rp = riser_poly(plan, p, k)
+          if rp && rp[1].size >= 3 && !rp[1].equal?(rp[0])
+            dir = Geo.norm(Geo.sub(l[:out], l[:in]))
+            ext_of = ->(pl) { xs = pl.map { |q| Geo.dot(q, dir) }; xs.max - xs.min }
+            len -= (ext_of.(rp[0]) - ext_of.(rp[1])) * MM
+          end
           res << Part.new(:riser, "R#{k + 1}", p['riser_t'] * MM, rect(len, hgt), [], 0.0, "Setzstufe #{k + 1}")
         end
         res
@@ -196,9 +234,12 @@ module JTools
           end
           cnt[b[:which]] += 1
           lbl = "W#{b[:which] == :outer ? 'A' : 'I'}#{cnt[b[:which]]}"
+          dw = wange_dowel_drills(plan, p, b)
           part = board_part(plan, b, b[:side] > 0, pockets[b[:which]], einstand, st * MM, lbl,
-                            "Wange #{b[:which] == :outer ? 'außen' : 'innen'} #{cnt[b[:which]]}", pocket_d, wange_drills(plan, p, b))
-          part.info += ", #{part.drills.size} Bohrungen (Geländerstäbe)" unless part.drills.empty?
+                            "Wange #{b[:which] == :outer ? 'außen' : 'innen'} #{cnt[b[:which]]}", pocket_d, wange_drills(plan, p, b) + dw)
+          nb = part.drills.size - dw.size
+          part.info += ", #{nb} Bohrungen (Geländerstäbe)" if nb > 0
+          part.info += format(', %d Dübelbohrungen Ø %g mm (Stirn, Pfosten)', dw.size, p['dowel_d'] * MM) unless dw.empty?
           res << part
         end
         # Eckpfosten nur auf Seiten ohne Geländer (sonst Geländerpfosten)
@@ -229,8 +270,11 @@ module JTools
           axis = Geo.mul(axis, -1) if axis[0] < 0
           rot, = rotation_for(axis)
           pp, = transform_all(poly, [], rot)
-          res << Part.new(:stringer, lbl, sb[:t] * MM, pp, [], 0.0,
+          part = Part.new(:stringer, lbl, sb[:t] * MM, pp, [], 0.0,
                           "Aufgesattelte Wange #{sb[:which] == :outer ? 'außen' : 'innen'} #{sb[:nr]}")
+          nd = [[:post0, false], [:post1, true]].sum { |key, e| sb[key] ? Railing.sattel_dowels(p, sb, e).size : 0 }
+          part.info += format(', %d Dübelbohrungen Ø %g mm × %g mm in der Stirn am Pfosten (von Hand)', nd, p['dowel_d'] * MM, p['dowel_depth'] * MM) if nd > 0
+          res << part
         end
         if skipped > 0
           warnings << "#{skipped} sehr kurze Wangenabschnitte (z. B. an Innenecken) fehlen im Export."
@@ -291,14 +335,19 @@ module JTools
         rot, = rotation_for(axis)
         # Bohrungen: Ansatzpunkt auf der Oberkante, Richtung lotrecht nach unten
         holes = drills.map { |q| [[mapx.(q[:u]), q[:z] * MM]] }
+        # Bohrrichtung in der Teilebene: Geländerstäbe lotrecht nach unten,
+        # Dübel in der Brettstirn entlang des Bretts (dir: [du, dz])
+        dirs = drills.map { |q| q[:dir] ? [mirror ? -q[:dir][0] : q[:dir][0], q[:dir][1]] : [0.0, -1.0] }
         pp, all = transform_all(poly, pk + paths + holes, rot)
         part = Part.new(:stringer, label, thick, pp, all[0, pk.size], einstand, info)
         part.pocket_paths = all[pk.size, paths.size] || []
-        dv = Geo.rot([0.0, -1.0], rot)
-        ang = Math.atan2(dv[1], dv[0]) * 180.0 / Math::PI
         part.drills = drills.each_with_index.map do |q, i|
           h = all[pk.size + paths.size + i][0]
-          { x: h[0], y: h[1], depth: q[:depth] * MM, d: q[:d] * MM, ang: ang.round(2) }
+          dv = Geo.rot(dirs[i], rot)
+          ang = Math.atan2(dv[1], dv[0]) * 180.0 / Math::PI
+          dr = { x: h[0], y: h[1], depth: q[:depth] * MM, d: q[:d] * MM, ang: ang.round(2) }
+          dr[:what] = q[:what] if q[:what]
+          dr
         end
         part
       end
@@ -309,6 +358,19 @@ module JTools
         Railing.compute(plan, p)[:sides].flat_map do |sd|
           next [] unless sd[:mount] == :wange && sd[:which] == b[:which]
           sd[:bars].select { |q| q[:drill] && q[:u] >= b[:u0] + 0.01 && q[:u] <= b[:u1] - 0.01 }.map { |q| q[:drill] }
+        end
+      end
+
+      # Dübelbohrungen in der Stirn eines Wangenbretts, das an einem Pfosten
+      # endet (cm, u/z; Richtung entlang des Bretts in das Brett)
+      def wange_dowel_drills(plan, p, b)
+        return [] if p['rail'] == 'keins'
+        [[:post0, false], [:post1, true]].flat_map do |key, at_end|
+          next [] unless b[key]
+          u = at_end ? b[:u1] : b[:u0]
+          Railing.wange_dowels(plan, p, b, at_end).map do |z|
+            { u: u, z: z, depth: p['dowel_depth'], d: p['dowel_d'], dir: [at_end ? -1.0 : 1.0, 0.0], what: 'Duebel Pfosten' }
+          end
         end
       end
 
@@ -334,16 +396,25 @@ module JTools
         Railing.sides(plan, p)
       end
 
-      # Geländerpfosten und -stäbe als Zuschnitt (Länge × Querschnitt)
-      def posts(plan, p)
+      # Geländerpfosten und -stäbe als Zuschnitt (Länge × Querschnitt);
+      # Pfosten mit Taschen und Bohrungen (part.ops)
+      def posts(plan, p, st_sides = [], einstand = 0.0)
         res = []
+        jn = post_joinery(plan, p, st_sides, einstand)
         Railing.compute(plan, p)[:sides].each do |sd|
           nm = sd[:which] == :outer ? 'außen' : 'innen'
           (sd[:posts] + (sd[:mids] || [])).each do |q|
             ln = q[:ztop] - q[:zbot]
             next if ln < 2
             info = q[:role] == :mitte ? "Zwischenpfosten #{nm} (unter dem Handlauf, Enden schräg)" : "Geländerpfosten #{nm} (#{q[:role]})"
-            res << Part.new(:post, "G#{res.count { |x| x.kind == :post } + 1}", q[:s] * MM, rect(ln * MM, q[:s] * MM), [], 0.0, info)
+            part = Part.new(:post, "G#{res.count { |x| x.kind == :post } + 1}", q[:s] * MM, rect(ln * MM, q[:s] * MM), [], 0.0, info)
+            j = jn[q.object_id]
+            if j && (j[:pockets].any? || j[:holes].any?)
+              part.ops = post_ops(sd, q, j)
+              part.info += ", #{j[:pockets].size} Taschen" if j[:pockets].any?
+              part.info += ", #{j[:holes].size} Bohrungen" if j[:holes].any?
+            end
+            res << part
           end
           sd[:bars].each do |q|
             ln = q[:ztop] - q[:zbot]
@@ -353,6 +424,38 @@ module JTools
           end
         end
         res
+      end
+
+      # Taschen und Bohrungen aller Geländerpfosten (Railing.post_joinery) aus
+      # den beschnittenen Tritt- und Setzstufen (mit Einstand)
+      def post_joinery(plan, p, st_sides, einstand)
+        return {} if p['rail'] == 'keins' || p['construction'] == 'massiv'
+        items = (0...plan.treads).map do |k|
+          top = (k + 1) * plan.h
+          [tread_poly(plan, p, k, st_sides, einstand), top - p['tread_t'], top,
+           "#{plan.kinds[k] == :landing ? 'Podest' : 'Stufe'} #{k + 1}"]
+        end
+        if p['risers']
+          (0...plan.treads).each do |k|
+            rp = riser_poly(plan, p, k)
+            items << [rp[1], rp[2], rp[3], "Setzstufe #{k + 1}"] if rp
+          end
+        end
+        Railing.post_joinery(plan, p, items)
+      end
+
+      # Bearbeitung eines Pfostens für die Werkstattliste (mm)
+      def post_ops(sd, q, j)
+        r = ->(v) { (v * MM).round(1) }
+        pk = j[:pockets].map do |t|
+          { kind: :pocket, face: t[:face], face_name: Railing.face_name(sd, q, t[:face]), a0: r.(t[:a0]), a1: r.(t[:a1]),
+            z0: r.(t[:z0]), z1: r.(t[:z1]), depth: r.(t[:depth]), what: t[:name] }
+        end
+        hl = j[:holes].map do |h|
+          { kind: :hole, face: h[:face], face_name: Railing.face_name(sd, q, h[:face]), a: r.(h[:a]), z: r.(h[:z]),
+            d: r.(h[:d]), depth: r.(h[:depth]), into: h[:into] ? r.(h[:into]) : nil, what: h[:what] }
+        end
+        (pk + hl).sort_by { |o| [o[:face], o[:z] || o[:z0]] }
       end
 
       # Runde Geländerstäbe (kein Plattenteil, nur Zuschnittliste)

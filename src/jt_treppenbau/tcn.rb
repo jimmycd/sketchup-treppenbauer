@@ -148,7 +148,7 @@ module JTools
         # 5) Wangenbohrungen mit dem Bohraggregat (nach der Außenkontur)
         faces.each_with_index do |fc, i|
           ws += 1
-          out << "SIDE##{7 + i}{" << '$=Bohrung Gelaenderstab (Aggregat)'
+          out << "SIDE##{7 + i}{" << "$=#{hdr[i][:what] || 'Bohrung Gelaenderstab'} (Aggregat)"
           out << drill(ws, fc[:pt], fc[:depth], fc[:d], opts[:hdrill_tool])
           out << '}SIDE'
         end

@@ -130,6 +130,136 @@ module JTools
           norm(sub(b, a))
         end
       end
+
+      # Liegt q streng innerhalb des konvexen Polygons c (gegen den Uhrzeigersinn)?
+      def in_convex?(c, q, eps = 1e-7)
+        c.each_index.all? { |i| cross(sub(c[(i + 1) % c.size], c[i]), sub(q, c[i])) > eps }
+      end
+
+      # Bereich [t_in, t_out] der Strecke a–b innerhalb des konvexen Polygons c
+      # (gegen den Uhrzeigersinn); nil = berührt es nicht
+      def clip_convex(c, a, b)
+        t0 = 0.0; t1 = 1.0
+        d = sub(b, a)
+        c.each_index do |k|
+          e = sub(c[(k + 1) % c.size], c[k])
+          ni = left(e)
+          num = dot(ni, sub(a, c[k]))
+          den = dot(ni, d)
+          if den.abs < 1e-12
+            return nil if num <= 1e-9
+            next
+          end
+          t = -num / den
+          den > 0 ? (t0 = t if t > t0) : (t1 = t if t < t1)
+          return nil if t1 - t0 < 1e-9
+        end
+        [t0, t1]
+      end
+
+      # Polygon poly ohne das konvexe Polygon cv (z. B. Pfostenquerschnitt).
+      # Ergebnis gegen den Uhrzeigersinn. Liegt cv ganz innerhalb von poly
+      # (Loch) oder berührt es nicht, bleibt poly unverändert; liegt poly ganz
+      # in cv, ist das Ergebnis leer. Zerfällt poly in mehrere Stücke, wird das
+      # größte geliefert (Splitter an der Spitze entfallen).
+      def subtract_convex(poly, cv)
+        pts = clean_ring(poly.map { |q| [q[0].to_f, q[1].to_f] }, 1e-6)
+        return poly if pts.size < 3
+        pts = pts.reverse if signed_area(pts) < 0
+        c = cv.map { |q| [q[0].to_f, q[1].to_f] }
+        c = c.reverse if signed_area(c) < 0
+        n = pts.size
+        # Knoten: [:v, Punkt, innen?] bzw. [:in / :out, Punkt]
+        nodes = []
+        n.times do |i|
+          a = pts[i]; b = pts[(i + 1) % n]
+          nodes << [:v, a, in_convex?(c, a)]
+          r = clip_convex(c, a, b)
+          next unless r
+          nodes << [:in, lerp(a, b, r[0])] if r[0] > 1e-9
+          nodes << [:out, lerp(a, b, r[1])] if r[1] < 1 - 1e-9
+        end
+        return [] if nodes.all? { |k, _, ins| k == :v && ins }
+        ins_i = nodes.each_index.select { |i| nodes[i][0] == :in }
+        outs_i = nodes.each_index.select { |i| nodes[i][0] == :out }
+        return pts if ins_i.empty?
+        return pts if ins_i.size != outs_i.size
+        # Randlage auf cv (Bogenlänge gegen den Uhrzeigersinn)
+        per = (0...c.size).map { |j| dist(c[j], c[(j + 1) % c.size]) }
+        tot = per.sum
+        pos = lambda do |q|
+          best = (0...c.size).map do |j|
+            a = c[j]; d = sub(c[(j + 1) % c.size], a)
+            l2 = dot(d, d)
+            t = l2 < 1e-12 ? 0.0 : [[dot(sub(q, a), d) / l2, 0.0].max, 1.0].min
+            [dist(q, add(a, mul(d, t))), j, t]
+          end.min_by(&:first)
+          per[0, best[1]].sum + best[2] * per[best[1]]
+        end
+        # Partner je Eintritt: der im Uhrzeigersinn nächste Austritt auf cv
+        partner = {}
+        ins_i.each do |i|
+          pe = pos.(nodes[i][1])
+          partner[i] = outs_i.min_by { |o| d = (pe - pos.(nodes[o][1])) % tot; d < 1e-9 ? tot : d }
+        end
+        m = nodes.size
+        seen = {}
+        loops = []
+        nodes.each_index do |st|
+          next if seen[st] || nodes[st][0] != :v || nodes[st][2]
+          out = []
+          i = st
+          guard = 0
+          loop do
+            guard += 1
+            return pts if guard > 4 * m + 8
+            seen[i] = true
+            k, q, ins = nodes[i]
+            if k == :v
+              out << q unless ins
+            elsif k == :in
+              x = partner[i]
+              out << q
+              out.concat(convex_arc_cw(c, q, nodes[x][1]))
+              out << nodes[x][1]
+              seen[x] = true
+              i = x
+            end
+            i = (i + 1) % m
+            break if i == st
+          end
+          loops << clean_ring(out, 1e-4)
+        end
+        loops.select! { |l| l.size >= 3 && signed_area(l) > 0 }
+        res = loops.max_by { |l| signed_area(l) }
+        return pts if res.nil? || signed_area(res) > signed_area(pts) + 1e-6
+        res
+      end
+
+      # Ecken des konvexen Polygons c (gegen den Uhrzeigersinn) zwischen den
+      # Randpunkten e und x, im Uhrzeigersinn von e nach x
+      def convex_arc_cw(c, e, x)
+        n = c.size
+        pos = lambda do |q|
+          (0...n).map do |j|
+            a = c[j]; d = sub(c[(j + 1) % n], a)
+            l2 = dot(d, d)
+            t = l2 < 1e-12 ? 0.0 : [[dot(sub(q, a), d) / l2, 0.0].max, 1.0].min
+            [dist(q, add(a, mul(d, t))), j, t]
+          end.min_by(&:first)[1, 2]
+        end
+        je, te = pos.(e)
+        jx, tx = pos.(x)
+        res = []
+        j = je; t = te
+        (n + 1).times do
+          break if j == jx && tx <= t + 1e-9
+          res << c[j]
+          j = (j - 1) % n
+          t = 1.0
+        end
+        res
+      end
     end
 
     # ------------------------------------------------------------------------

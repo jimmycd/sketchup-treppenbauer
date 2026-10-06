@@ -241,7 +241,7 @@ module JTools
       def drill_face(h, t, clr, tool)
         fc = Tcn.drill_face(h, t, clr)
         x0 = h[:x]; x1 = h[:x] + Tcn.drill_dir(h)[0] * h[:depth]
-        { corners: fc[:corners], depth_z: fc[:depth_z], title: 'Bohrung Gelaenderstab (Aggregat)',
+        { corners: fc[:corners], depth_z: fc[:depth_z], title: "#{h[:what] || 'Bohrung Gelaenderstab'} (Aggregat)",
           xr: [[x0, x1].min - h[:d] / 2.0, [x0, x1].max + h[:d] / 2.0],
           body: [[:drill, fc[:pt], fc[:depth], fc[:d], tool]] }
       end
