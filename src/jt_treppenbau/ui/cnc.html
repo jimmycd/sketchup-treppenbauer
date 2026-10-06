@@ -125,7 +125,17 @@
     { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'agg_len', label:'nutzbare Länge', unit:'mm', step:1, need:'sattel' },
     { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'agg_clear', label:'Freiraum Aggregat über dem Material', unit:'mm', step:1, need:'sattel' },
     { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'agg_step', label:'Zustellung entlang der Spindelachse', unit:'mm', step:1, need:'sattel' },
-    { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'blank_margin', label:'Rohling: Zugabe ringsum', unit:'mm', step:1, need:'sattel' },
+    { g:'Wangen und Handläufe (je Teil ein eigener Rohling)', key:'blank_margin', label:'Rohling: Zugabe ringsum', unit:'mm', step:1,
+      help:'Gilt für alle Wangen und Handläufe – sie werden nie verschachtelt, jedes Teil hat einen eigenen Rohling.' },
+    { g:'Überlange Wangen (länger als der Verfahrweg)', key:'long_mode', label:'Strategie', type:'select', need:'wange',
+      options:[['drehen','2 Läufe, dazwischen 180° drehen (gleicher Anschlag)'],['aus','aus (nur Warnung wie bisher)']],
+      help:'Lauf A: Ende A am linken X-Anschlag, Kante 1 vorne. Lauf B: Wange in der Ebene drehen, Ende B an denselben Anschlag, Kante 1 hinten. Teilung zwischen den Nuten, nur die Außenkontur wird geteilt. Eingestemmte Wangen, die nicht auf die Rohplatte passen, bekommen einen eigenen Rohling.' },
+    { g:'Überlange Wangen (länger als der Verfahrweg)', key:'mach_l', label:'Verfahrweg X (größte TCN-Länge)', unit:'mm', step:1, need:'wange' },
+    { g:'Überlange Wangen (länger als der Verfahrweg)', key:'long_overlap', label:'Außenkontur: Überlauf über die Teilung', unit:'mm', step:1, need:'wange' },
+    { g:'Überlange Wangen (länger als der Verfahrweg)', key:'tab_n', label:'Haltestege je Konturstück im ersten Lauf', unit:'Stk', step:1, need:'wange',
+      help:'Halten den Abfall beim Drehen am Teil; nach Lauf B von Hand trennen. 0 = keine.' },
+    { g:'Überlange Wangen (länger als der Verfahrweg)', key:'tab_w', label:'Haltesteg: Breite', unit:'mm', step:1, need:'wange' },
+    { g:'Überlange Wangen (länger als der Verfahrweg)', key:'tab_h', label:'Haltesteg: Höhe', unit:'mm', step:0.5, need:'wange' },
     { g:'Bohrungen Geländerstäbe', key:'drill_tool', label:'Bohrer von oben (Trittstufen)', unit:'Nr', step:1, need:'rail',
       help:'Ø der Bohrung = Stabdurchmesser bzw. Kantenlänge. 0 = Werkzeug nach Durchmesser (TpaCAD).' },
     { g:'Bohrungen Geländerstäbe', key:'drill_wange', label:'Eingestemmte Wange: Bohrungen in der Oberkante', type:'select', need:'wbore',
@@ -269,8 +279,8 @@
       var nm = { mill1:0, mill2:0, mark:0, mark2:0 };
       b.walls.forEach(function (w) { nm[w.how] = (nm[w.how] || 0) + 1; });
       div.innerHTML = '<h3>' + esc(b.label) + ' – ' + esc(b.info) + '<span>Rohling ' + L + ' × ' + W + ' × ' + fmt(b.thickness) + ' mm</span>' +
-        '<span>' + (b.sides > 1 ? '2 Programme (wenden)' : '1 Programm') + '</span>' +
-        '<span style="color:#27ae60">Aggregat S1: ' + nm.mill1 + '</span>' + (nm.mill2 ? '<span style="color:#2a6fdb">S2: ' + nm.mill2 + '</span>' : '') +
+        '<span>' + (b.sides > 1 ? '2 Programme (wenden)' : '1 Programm') + (b.runs > 1 ? ', je 2 Läufe (drehen)' : '') + '</span>' +
+        (b.walls.length ? '<span style="color:#27ae60">Aggregat S1: ' + nm.mill1 + '</span>' : '') + (nm.mill2 ? '<span style="color:#2a6fdb">S2: ' + nm.mill2 + '</span>' : '') +
         (nm.mark + nm.mark2 ? '<span style="color:#c0392b">markiert: ' + (nm.mark + nm.mark2) + '</span>' : '') + '</h3>';
       var svg = document.createElementNS(NS, 'svg');
       var pad = Math.max(L, W) * 0.01;
@@ -282,6 +292,16 @@
       el('rect', { x: 0, y: 0, width: L, height: W, fill: '#f7f5f1', stroke: '#555', 'stroke-width': sw * 1.5 });
       el('polygon', { points: P(b.outline), fill: COL.stringer, stroke: '#3b2a14', 'stroke-width': sw });
       var C = { mill1: '#27ae60', mill2: '#2a6fdb', mark: '#c0392b', mark2: '#c0392b' };
+      (b.paths || []).forEach(function (pa) {
+        el('polyline', { points: P(pa), fill: 'none', stroke: '#6b4a26', 'stroke-width': sw * 1.5 });
+      });
+      if (b.split != null) {
+        el('line', { x1: b.split, y1: -pad, x2: b.split, y2: W + pad, stroke: '#2a6fdb', 'stroke-width': sw * 2, 'stroke-dasharray': (10 * sw) + ',' + (6 * sw) });
+        var ta = el('text', { x: b.split - 6 * sw, y: 12 * sw, 'font-size': 11 * sw, fill: '#2a6fdb', 'text-anchor': 'end' });
+        ta.textContent = 'Lauf A';
+        var tb = el('text', { x: b.split + 6 * sw, y: 12 * sw, 'font-size': 11 * sw, fill: '#2a6fdb' });
+        tb.textContent = 'Lauf B';
+      }
       b.walls.forEach(function (w) {
         el('polyline', { points: P(w.line), fill: 'none', stroke: C[w.how] || '#000', 'stroke-width': sw * 4 });
         if (w.how === 'mark2') el('polyline', { points: P(w.line2), fill: 'none', stroke: C.mark2, 'stroke-width': sw * 2, 'stroke-dasharray': (6 * sw) + ',' + (4 * sw) });

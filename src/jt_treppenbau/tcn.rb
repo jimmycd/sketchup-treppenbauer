@@ -192,19 +192,30 @@ module JTools
       end
 
       def build_job(job, prog, opts)
-        t = job.t
-        l, w = prog.side == 1 ? job.raw_blank : job.blank
-        off = prog.side == 1 ? job.raw_off : 0.0
-        shift = ->(q) { [q[0] + off, q[1] + off] }
-        nf = prog.faces.size
+        build_prog(Lauf.from_job(job, prog, opts))
+      end
+
+      # Allgemeines Programm (Lauf.from_job / Lauf.from_part / Lauf.split)
+      def write_prog(path, prog)
+        File.open(path, 'wb') do |io|
+          text = build_prog(prog).join("\r\n") + "\r\n"
+          io.write(text.encode('Windows-1252', invalid: :replace, undef: :replace, replace: '_'))
+        end
+        path
+      end
+
+      def build_prog(prog)
+        faces = prog[:faces]
+        nf = faces.size
         sides = [1] + (0...nf).map { |i| 7 + i }
         out = []
-        out << 'TPA\\ALBATROS\\EDICAD\\02.00:1224:r0w0h0s1'
+        # Feld am Ende der Kopfzeile: s1 (Standard), s3 = N1 (vorne), s6 = N (hinten)
+        out << "TPA\\ALBATROS\\EDICAD\\02.00:1224:r0w0h0s#{prog[:field] || 1}"
         out << "::SIDE=#{sides.map { |x| "#{x};" }.join}"
-        out << "::UNm DL=#{n(l)} DH=#{n(w)} DS=#{n(t)}"
+        out << "::UNm DL=#{n(prog[:l])} DH=#{n(prog[:w])} DS=#{n(prog[:t])}"
         out << "'tcn version=2.6.14"
         out << "'code=ansi"
-        out << "'Treppenbau #{job.label} Seite #{prog.side}"
+        out.concat(prog[:comments] || [])
         out << 'EXE{' << '#0=0' << '#1=0' << '#2=0' << '#3=0' << '#4=0' << '}EXE'
         out << 'OFFS{' << '#0=0|0' << '#1=0|0' << '#2=0|0' << '}OFFS'
         out << 'VARV{'
@@ -219,68 +230,40 @@ module JTools
         out << '}OPTI' << 'LINK{' << '}LINK'
         unless nf.zero?
           out << 'GEO{' << "::NF=#{nf}"
-          prog.faces.each_with_index do |fc, i|
+          faces.each_with_index do |fc, i|
             out << "GSIDE##{7 + i}{"
-            fc[:corners].each_with_index { |c, k| out << "##{k + 1}=#{n(c[0] + off)}|#{n(c[1] + off)}|#{n(c[2])}" }
+            fc[:corners].each_with_index { |c, k| out << "##{k + 1}=#{n(c[0])}|#{n(c[1])}|#{n(c[2])}" }
             out << "#Z=#{n(fc[:depth_z])}" << '}GSIDE'
           end
           out << '}GEO'
         end
         out << 'SIDE#0{' << '}SIDE'
         ws = 0
-        side1 = []
-        prog.ops.each do |kind, pts, mode|
-          next if pts.nil? || pts.size < 2
-          pts = pts.map(&shift)
-          case kind
-          when :mark
-            ws += 1
-            side1 << setup(ws, pts.first, n(-opts[:deco_depth].to_f.abs), n(opts[:deco_tool]), 0)
-            side1.concat(lines(pts))
-          when :clear
-            [-(t / 2.0), -(t + opts[:overcut].to_f)].each do |z|
-              ws += 1
-              side1 << setup(ws, pts.first, n(z), n(opts[:tool_outer]), 0)
-              side1.concat(lines(pts))
-            end
-          when :contour, :format
-            # Formatieren und Außenkontur: Korrektur außen, stufenweise
-            final = case mode
-                    when :leave_rest then [t - Wange3d::REST_T, 1.0].max
-                    when :finish_rest then [Wange3d::REST_T, t].min + opts[:overcut].to_f
-                    else t + opts[:overcut].to_f
-                    end
-            dir = opts[:climb] ? :cw : :ccw
-            if mode.is_a?(Hash)
-              # Teilstück der Kontur (offen), in Umlaufrichtung dir
-              seq = mode[:idx].map { |i| pts[i] }
-              ccw = Geo.signed_area(pts) > 0
-              seq.reverse! if (dir == :cw) == ccw
-            else
-              loop_ = orient(pts, dir)
-              seq = loop_ + [loop_.first]
-            end
-            step_depths(final, opts[:zstep]).each do |z|
-              ws += 1
-              side1 << setup(ws, seq.first, n(-z), n(opts[:tool_outer]), opts[:climb] ? 1 : 2)
-              side1.concat(lines(seq))
-            end
+        out << 'SIDE#1{' << "$=#{prog[:title]}"
+        prog[:ops].each do |op|
+          ws += 1
+          if op[:k] == :vdrill
+            out << drill(ws, op[:pt], op[:depth], op[:d], op[:tool])
+          else
+            out << setup(ws, op[:pts].first, n(op[:z]), n(op[:tool]), op[:comp])
+            out.concat(lines(op[:pts]))
           end
         end
-        agg = prog.faces.each_with_index.map do |fc, i|
-          blk = ["SIDE##{7 + i}{", "$=Schraege Aggregat #{fc[:tool]}"]
-          fc[:paths].each do |seq, depth|
-            ws += 1
-            blk << setup(ws, seq.first, n(depth), n(fc[:tool]), 0)
-            blk.concat(lines(seq))
-          end
-          blk << '}SIDE'
-        end
-        out << 'SIDE#1{' << "$=#{job.label} Seite #{prog.side}"
-        out.concat(side1)
         out << '}SIDE'
         (3..6).each { |sd| out << "SIDE##{sd}{" << '}SIDE' }
-        agg.each { |blk| out.concat(blk) }
+        faces.each_with_index do |fc, i|
+          out << "SIDE##{7 + i}{" << "$=#{fc[:title]}"
+          fc[:body].each do |kind, a, b, c, d|
+            ws += 1
+            if kind == :drill
+              out << drill(ws, a, b, c, d)
+            else
+              out << setup(ws, a.first, n(b), n(c), 0)
+              out.concat(lines(a))
+            end
+          end
+          out << '}SIDE'
+        end
         out
       end
 
@@ -439,3 +422,6 @@ module JTools
     end
   end
 end
+
+# Läufe für überlange Wangen (für Tests ohne main.rb; dort per load)
+require_relative 'lauf' unless defined?(JTools::Treppenbau::Lauf)

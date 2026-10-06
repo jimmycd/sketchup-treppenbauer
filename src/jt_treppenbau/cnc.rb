@@ -56,10 +56,25 @@ module JTools
         'drill_tool'  => 0,       # Bohrer von oben (Trittstufen), 0 = nach Durchmesser
         'drill_wange' => 'bohren', # eingestemmte Wange: 'bohren' (Aggregat) oder nur 'markieren'
         'hdrill_tool' => 0,       # Bohraggregat waagerecht, 0 = nach Durchmesser
-        'drill_clear' => 5.0      # Anfahrabstand vor der Wangenkante (mm)
+        'drill_clear' => 5.0,     # Anfahrabstand vor der Wangenkante (mm)
+        # überlange Wangen: zwei Läufe, dazwischen 180° drehen (gleicher X-Anschlag)
+        'long_mode'   => 'drehen', # 'drehen' oder 'aus' (dann nur Warnung wie bisher)
+        'mach_l'      => 3200.0,  # Verfahrweg X = größte TCN-Länge (mm)
+        'long_overlap' => 10.0,   # Außenkontur: Überlauf über die Teilung je Lauf (mm)
+        'tab_n'       => 3,       # Haltestege je Konturstück in Lauf A (0 = keine)
+        'tab_w'       => 20.0,    # Breite Haltesteg (mm)
+        'tab_h'       => 4.0      # Höhe Haltesteg (mm)
       }.freeze
 
-      Result = Struct.new(:sheets, :unplaced, :warnings, :parts, :boards)
+      Result = Struct.new(:sheets, :unplaced, :warnings, :parts, :boards, :longs)
+      # Teile mit eigenem Rohling statt Verschachtelung (eingestemmte Wangen,
+      # Handläufe): eigenes Programm, überlang in zwei Läufen
+      OWN_BLANK = %i[stringer rail].freeze
+      LongPart = Struct.new(:part, :prog, :split, :notes) do
+        def label; part.label; end
+        def blank; [prog[:l], prog[:w]]; end
+        def kind_name; Parts::KIND_NAMES[part.kind] || part.kind.to_s; end
+      end
       SheetInfo = Struct.new(:thickness, :index, :count, :placements, :used_len, :util, :tool)
 
       def normalize(h)
@@ -110,6 +125,7 @@ module JTools
       end
 
       def compute(plan, params, o)
+        o['long_mode'] = 'drehen' unless %w[drehen aus].include?(o['long_mode'])
         parts, warnings = Parts.collect(plan, params,
                                         treads: o['p_treads'], risers: o['p_risers'],
                                         stringers: o['p_stringers'], posts: o['p_posts'],
@@ -122,7 +138,12 @@ module JTools
           lbls = boards.map(&:label)
           parts = parts.reject { |pt| pt.kind == :stringer && lbls.include?(pt.label) }
           boards.each { |b| warnings << b.summary if b.summary }
-          long = boards.select { |b| b.raw_blank[0] > o['plate_l'] || b.raw_blank[1] > o['plate_w'] }
+          if o['long_mode'] == 'drehen'
+            boards.each { |b| split_board(b, o, warnings) }
+            long = boards.select { |b| b.raw_blank[1] > o['plate_w'] || b.splits.values.any? { |sp| sp[:runs].nil? } }
+          else
+            long = boards.select { |b| b.raw_blank[0] > o['plate_l'] || b.raw_blank[1] > o['plate_w'] }
+          end
           unless long.empty?
             warnings << "Wangen-Rohling größer als Rohplatte/Tisch (#{o['plate_l'].round} × #{o['plate_w'].round} mm): " +
                         long.map { |b| "#{b.label} (#{b.raw_blank.map(&:round).join('×')} mm)" }.join(', ')
@@ -134,7 +155,7 @@ module JTools
         nh = parts.sum { |pt| pt.drills.count { |h| h[:ang] } }
         if nh > 0 && o['drill_wange'] == 'bohren'
           warnings << "#{nh} Bohrungen für Geländerstäbe in der Wangenoberkante (Bohraggregat, nach der Außenkontur): " \
-                      'vor der Oberkante muss Platz für das Aggregat sein – Teileabstand prüfen oder „nur markieren“ wählen.'
+                      'je Wange ein eigener Rohling; vor der Oberkante muss Platz für das Aggregat sein – Rohling-Zugabe prüfen oder „nur markieren“ wählen.'
         end
         (boards || []).each do |b|
           w = depth_warning("Wange #{b.label} (#{fmt(b.t)} mm)", outer_tool(o, b.t))
@@ -149,7 +170,19 @@ module JTools
         end
         sheets = []
         unplaced = []
-        parts.group_by(&:thickness).sort.each do |th, list|
+        # Wangen und Handläufe nie verschachteln: je Teil ein eigener Rohling,
+        # damit das Bohraggregat von der Seite an die Kanten kommt
+        longs = []
+        own, nest = parts.partition { |pt| OWN_BLANK.include?(pt.kind) }
+        own.map(&:thickness).uniq.sort.each do |th|
+          w = depth_warning("#{own.select { |pt| pt.thickness == th }.map(&:label).join(', ')} (#{fmt(th)} mm)", outer_tool(o, th))
+          warnings << w if w
+        end
+        own.each do |pt|
+          lp = long_part(pt, o, warnings)
+          lp ? longs << lp : unplaced << pt
+        end
+        nest.group_by(&:thickness).sort.each do |th, list|
           tl = outer_tool(o, th)
           w = depth_warning("Platten #{fmt(th)} mm", tl)
           warnings << w if w
@@ -172,7 +205,74 @@ module JTools
           warnings << "#{unplaced.size} Teil(e) passen nicht auf die Rohplatte: " +
                       unplaced.map { |p| "#{p.label} (#{p.size.map { |v| v.round }.join('×')} mm)" }.first(8).join(', ')
         end
-        Result.new(sheets, unplaced, warnings, parts, boards)
+        Result.new(sheets, unplaced, warnings, parts, boards, longs)
+      end
+
+      # Optionen für Lauf.from_job (wie Tcn.write_job)
+      def job_opts(o, t)
+        { tool_outer: outer_tool(o, t)[:nr], overcut: o['overcut'], climb: o['climb'],
+          zstep: o['sat_zstep'], deco_tool: o['deco_tool'], deco_depth: o['deco_depth'] }
+      end
+
+      # Aufgesattelte Wange: Programme je Seite in Läufe teilen (Job#splits)
+      def split_board(jb, o, warnings)
+        r = outer_tool(o, jb.t)[:d] / 2.0
+        jb.splits = {}
+        jb.programs.each do |pg|
+          # Seite 2 ist um die Y-Achse gewendet: Ursprung am Ende B
+          sp = Lauf.split(Lauf.from_job(jb, pg, job_opts(o, jb.t)), o, r, pg.side == 1 ? %w[A B] : %w[B A], pg.side == 1 ? 0 : 1)
+          jb.splits[pg.side] = sp
+          sp[:warnings].each { |w| warnings << "Wange #{jb.label} Seite #{pg.side}: #{w}" }
+        end
+        sp1 = jb.splits[1]
+        return unless sp1 && sp1[:runs] && sp1[:runs].size > 1
+        jb.notes.concat(long_notes(jb.label, jb.raw_blank, sp1[:x_t], o, jb.programs.size > 1))
+      end
+
+      # Eingestemmte Wange bzw. Handlauf: eigener Rohling (blank_margin ringsum)
+      def long_part(pt, o, warnings)
+        tl = outer_tool(o, pt.thickness)
+        prog = Lauf.from_part(pt, o, tl[:nr])
+        name = Parts::KIND_NAMES[pt.kind] || pt.kind.to_s
+        if prog[:w] > o['plate_w'] + 1e-6
+          warnings << "#{name} #{pt.label}: Rohling #{prog[:w].round} mm breiter als der Tisch (#{o['plate_w'].round} mm)."
+          return nil
+        end
+        if o['long_mode'] == 'drehen'
+          sp = Lauf.split(prog, o, tl[:d] / 2.0)
+        else
+          sp = { runs: [Lauf::Run.new('A', false, prog, nil)], x_t: nil, warnings: [] }
+          sp[:warnings] << "Rohling #{prog[:l].round} mm länger als der Verfahrweg (#{o['mach_l'].round} mm)" if prog[:l] > o['mach_l'] + 1e-6
+        end
+        sp[:warnings].each { |w| warnings << "#{name} #{pt.label}: #{w}" }
+        return nil unless sp[:runs]
+        notes = []
+        if sp[:runs].size > 1
+          notes.concat(long_notes(pt.label, [prog[:l], prog[:w]], sp[:x_t], o, false))
+          warnings << "#{name} #{pt.label} überlang (Rohling #{prog[:l].round} × #{prog[:w].round} mm): 2 Läufe, " \
+                      'dazwischen drehen – Einrichtung siehe …_Wangen_Nacharbeit.txt.'
+        end
+        LongPart.new(pt, prog, sp, notes)
+      end
+
+      # Einrichtblatt für zwei Läufe
+      def long_notes(label, blank, x_t, o, wenden)
+        l, w = blank
+        tabs = if o['tab_n'].to_i > 0 && o['tab_h'].to_f > 0
+                 "Im ersten Lauf jeder Seite bleiben bis zu #{o['tab_n'].to_i} Haltestege je Konturstück stehen " \
+                 "(#{fmt(o['tab_w'], 0)} × #{fmt(o['tab_h'], 0)} mm) – nach dem zweiten Lauf von Hand trennen."
+               else
+                 'Ohne Haltestege.'
+               end
+        seq = wenden ? 'Seite1_A, Seite1_B, wenden um die Y-Achse (Ende A kommt nach links, Kante 1 bleibt hinten), Seite2_A, Seite2_B' : 'A, dann B'
+        [
+          "#{label}: ÜBERLANG – Rohling genau #{l.round} mm lang (Enden rechtwinklig), Breite #{w.round} mm; " \
+          'eine Längskante gerade abrichten und als Kante 1 markieren.',
+          "#{label}: Teilung bei #{x_t.round} mm von Ende A, Außenkontur überlappt je #{fmt(o['long_overlap'], 0)} mm. " \
+          "Lauf A (Feld N1): Ende A an den linken X-Anschlag, Kante 1 am VORDEREN Y-Anschlag; Lauf B (Feld N): " \
+          'Wange 180° drehen, Ende B an denselben linken Anschlag, Kante 1 am HINTEREN Y-Anschlag.',
+          "#{label}: Reihenfolge #{seq}. #{tabs} Überstand rechts abstützen."
+        ]
       end
 
       def sheet_name(base, sh)
@@ -198,20 +298,38 @@ module JTools
         bfiles = {}
         (res.boards || []).each do |jb|
           jb.programs.each do |pg|
+            sp = jb.splits && jb.splits[pg.side]
+            if sp && sp[:runs] && sp[:runs].size > 1
+              sp[:runs].each do |run|
+                path = File.join(dir, "#{base}_Wange_#{jb.label}_Seite#{pg.side}_#{run.name}.tcn")
+                Tcn.write_prog(path, Lauf.labeled(run))
+                files << path
+                (bfiles[jb.label] ||= []) << File.basename(path)
+              end
+              next
+            end
             path = File.join(dir, "#{base}_Wange_#{jb.label}_Seite#{pg.side}.tcn")
-            Tcn.write_job(path, jb, pg,
-                          tool_outer: outer_tool(o, jb.t)[:nr], overcut: o['overcut'], climb: o['climb'],
-                          zstep: o['sat_zstep'],
-                          deco_tool: o['deco_tool'], deco_depth: o['deco_depth'])
+            Tcn.write_job(path, jb, pg, job_opts(o, jb.t))
             files << path
             (bfiles[jb.label] ||= []) << File.basename(path)
           end
         end
-        notes = (res.boards || []).flat_map(&:notes)
+        (res.longs || []).each do |lp|
+          runs = lp.split[:runs]
+          runs.each do |run|
+            path = File.join(dir, "#{base}_#{lp.kind_name}_#{lp.label}#{runs.size > 1 ? "_#{run.name}" : ''}.tcn")
+            Tcn.write_prog(path, runs.size > 1 ? Lauf.labeled(run) : run.prog)
+            files << path
+            (bfiles[lp.label] ||= []) << File.basename(path)
+          end
+        end
+        notes = (res.boards || []).flat_map(&:notes) + (res.longs || []).flat_map(&:notes)
         unless notes.empty?
           txt = File.join(dir, "#{base}_Wangen_Nacharbeit.txt")
+          n_w = (res.boards || []).size + (res.longs || []).size
           File.open(txt, 'wb') do |io|
-            io.write((["Aufgesattelte Wangen – Hinweise (#{res.boards.size} Wangen)", ''] + notes).join("\r\n").encode('Windows-1252', invalid: :replace, undef: :replace, replace: '_') + "\r\n")
+            head = (res.longs || []).empty? ? "Aufgesattelte Wangen – Hinweise (#{res.boards.size} Wangen)" : "Wangen und Handläufe – Hinweise (#{n_w} Teile mit eigenem Programm)"
+            io.write(([head, ''] + notes).join("\r\n").encode('Windows-1252', invalid: :replace, undef: :replace, replace: '_') + "\r\n")
           end
           files << txt
         end
@@ -229,6 +347,12 @@ module JTools
           (res.boards || []).each do |jb|
             rows << ['', jb.label, jb.info + ' (Rohling)', fmt(jb.t), fmt(jb.raw_blank[0]), fmt(jb.raw_blank[1]),
                      fmt(jb.raw_blank[0] * jb.raw_blank[1] / 1e6, 3), bfiles.fetch(jb.label, []).join(' + '), '', '', '']
+          end
+          (res.longs || []).each do |lp|
+            p = lp.part
+            l, w = lp.blank
+            rows << [p.id, p.label, p.info + ' (eigener Rohling)', fmt(p.thickness), fmt(l), fmt(w),
+                     fmt(l * w / 1e6, 3), bfiles.fetch(p.label, []).join(' + '), '', '', '']
           end
           res.unplaced.each do |p|
             l, w = p.size
@@ -263,14 +387,24 @@ module JTools
             }
           end,
           boards: (res.boards || []).map do |jb|
+            sp = jb.splits && jb.splits[1]
             {
               label: jb.label, info: jb.info, thickness: jb.t, blank: jb.blank.map(&:round),
               outline: jb.outline.map { |q| q.map { |v| v.round(1) } },
               sides: jb.programs.size,
+              runs: sp && sp[:runs] ? sp[:runs].size : 1, split: sp && sp[:x_t] ? sp[:x_t].round(1) : nil,
               walls: jb.walls.map do |w|
                 { how: w[:how].to_s, rest: (w[:rest] || 0).round,
                   line: pv_line(jb, w[:u_top][0], w), line2: pv_line(jb, w[:u_top][1], w) }
               end
+            }
+          end + (res.longs || []).map do |lp|
+            pg = lp.prog
+            {
+              label: lp.label, info: lp.part.info, thickness: lp.part.thickness, blank: lp.blank.map(&:round),
+              outline: pg[:outline].map { |q| q.map { |v| v.round(1) } }, sides: 1, walls: [],
+              runs: lp.split[:runs].size, split: lp.split[:x_t] ? lp.split[:x_t].round(1) : nil,
+              paths: pg[:ops].reject { |op| op[:cut] || op[:k] != :mill }.map { |op| op[:pts].map { |q| q.map { |v| v.round(1) } } }
             }
           end,
           unplaced: res.unplaced.map { |p| { label: p.label, size: p.size.map(&:round), thickness: p.thickness } },
@@ -304,9 +438,17 @@ module JTools
         bs = res.boards || []
         unless bs.empty?
           rows << ['Aufgesattelte Wangen (3D, je ein Programm)', bs.size,
-                   bs.sum { |b| b.programs.size }.to_s + ' TCN' + (bs.any? { |b| b.programs.size > 1 } ? ' (mit Wenden)' : '')]
+                   bs.sum { |b| b.programs.sum { |pg| (sp = b.splits && b.splits[pg.side]) && sp[:runs] ? sp[:runs].size : 1 } }.to_s + ' TCN' + (bs.any? { |b| b.programs.size > 1 } ? ' (mit Wenden)' : '')]
         end
-        tools = res.sheets.map { |sh| [sh.thickness, sh.tool] } + bs.map { |b| [b.t, outer_tool(o, b.t)] }
+        ls = res.longs || []
+        nrun = bs.count { |b| b.splits && b.splits.values.any? { |sp| sp[:runs] && sp[:runs].size > 1 } } +
+               ls.count { |lp| lp.split[:runs].size > 1 }
+        unless ls.empty?
+          rows << ['Wangen und Handläufe mit eigenem Rohling', ls.size, ls.sum { |lp| lp.split[:runs].size }.to_s + ' TCN']
+        end
+        rows << ['Überlange Wangen (2 Läufe, drehen)', nrun, "Verfahrweg #{fmt(o['mach_l'], 0)} mm"] if nrun > 0
+        tools = res.sheets.map { |sh| [sh.thickness, sh.tool] } + bs.map { |b| [b.t, outer_tool(o, b.t)] } +
+                ls.map { |lp| [lp.part.thickness, outer_tool(o, lp.part.thickness)] }
         tr = tools.uniq { |th, _| th }.sort_by(&:first).map do |th, tl|
           ["Außenkontur #{fmt(th)} mm", "Fräser #{tl[:nr]}", "Ø #{fmt(tl[:d], 2)} mm, Tiefe #{fmt(tl[:depth])} mm"]
         end

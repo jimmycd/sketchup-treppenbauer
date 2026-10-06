@@ -35,6 +35,18 @@ SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Expor
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
 
+## Version 2.12.0 (Branch `claude/project-thread-1jhtzg`, PR #7) – überlange Wangen: zwei Läufe, dazwischen drehen
+- **Maschine:** Verfahrweg X 3200 mm, TpaCAD nimmt keine TCN mit DL > 3200 mm an, Überstand nur nach rechts. Strategie (Doc „Lange Wangen auf 3-m-CNC – Wendestrategie“): Lauf A mit Ende A am linken X-Anschlag und Kante 1 am vorderen Y-Anschlag; Wange 180° in der Ebene drehen; Lauf B mit Ende B am selben Anschlag und Kante 1 am hinteren Y-Anschlag. Die Rohbreite kürzt sich heraus, nur die Rohlänge muss stimmen.
+- **Neues Modul `lauf.rb`** (ohne SketchUp-API): allgemeine Programmform (Bahnen, Bohrungen, Hilfsflächen), `Lauf.split` teilt bei x_T in der Überlappungszone mit größtem Abstand zu Bohrungen, Gravur, Markierungen und Schrägen; Außenkonturen werden geteilt und je `long_overlap` überlappend gefräst, Nuten nur, wenn sie durchlaufen (Tritt- + Setzstufen). Lauf B: x' = L − x, y' = W − y, Hilfsflächen starr mitgedreht. Haltestege (`tab_n`/`tab_w`/`tab_h`) im zuerst gefrästen Lauf jeder Seite.
+- `Tcn.build_job` läuft jetzt über `Lauf.from_job` + `Tcn.build_prog` (Ausgabe bytegleich wie vorher).
+- **Wangen und Handläufe werden nie verschachtelt** (Jürgen: sonst kommt das Bohraggregat nicht seitlich an die Kanten): jede eingestemmte Wange und jeder Handlauf bekommt einen eigenen Rohling (`blank_margin` ringsum, `Cnc::OWN_BLANK`), `…_Wange_WA1.tcn` / `…_Handlauf_H1.tcn`, überlang `…_A.tcn` + `_B.tcn`. Bohrungen am Teil (`Part#drills`, auch die Stab-Bohrungen im Handlauf aus 2.11.0) laufen über `Lauf.from_part` mit.
+- **Aufgesattelte Wangen** über 3200 mm: `…_Seite1_A/B.tcn` (mit Wenden auch `Seite2_A/B`, Reihenfolge = alphabetisch). Überlang wird nicht formatiert (`Job#long`, Bezug Rohkanten).
+- Einrichtblatt in `…_Wangen_Nacharbeit.txt` (Rohlänge, Teilung, Anschläge, Reihenfolge, Haltestege); Vorschau zeigt die Teilung.
+- Neue CNC-Optionen: `long_mode` (`drehen` | `aus` = Verhalten wie 2.11.0), `mach_l` 3200, `long_overlap` 10, `tab_n` 3, `tab_w` 20, `tab_h` 4.
+- **Bezug Lauf B:** über das Feld in TpaCAD, Ende der Kopfzeile (Jürgen): Lauf A `…:r0w0h0s3` = Feld N1 (vorne), Lauf B `…:r0w0h0s6` = Feld N (hinten); DH = Rohbreite, y' = W − y. Alle anderen Programme bleiben bei `s1`.
+- **TpaCAD ungeprüft:** Haltestege als eigene Bahnstücke mit geringerer Tiefe.
+- Tests: neu `test/lauf_test.rb` (4 Formen × Seitenkombinationen × Wenden × fräsen/markieren × 2 Höhen).
+
 ## Version 2.11.0 (Branch `claude/gelaender-fehler-3bc56f`) – Geländer-Fehler: Stäbe, Handlauf, Pfosten, Zwischenpfosten
 - **Stäbe in den Handlauf gebohrt:** Stäbe enden nicht mehr an der Handlauf-Unterkante (dort klaffte bei geneigtem Handlauf bergseitig ein Spalt), sondern gehen lotrecht um `bal_depth` (höchstens `rail_hh` − 1 cm) hinein. Stab-Hash hat `rdrill:`, Handlaufstück `drills:`; das Handlauf-Frästeil bekommt Bohrungen mit Winkel (`ang`) von der Unterkante aus – im TCN wie die Wangenbohrungen (Aggregat bzw. markieren, `drill_wange`).
 - **Handlauf an Eckpfosten:** endete bisher bei u ± `newel_s`/2 auf der Begrenzung; da die Achse versetzt ist, fehlten außen (eingestemmt) 2,5 cm bzw. ragte er innen in den Pfosten. Jetzt `Railing.face_u` + `leg_pt`: Ende genau an der Pfostenfläche (Achse des Schenkels ggf. über die Ecke verlängert).
