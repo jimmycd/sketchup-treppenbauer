@@ -126,6 +126,13 @@
     { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'agg_clear', label:'Freiraum Aggregat über dem Material', unit:'mm', step:1, need:'sattel' },
     { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'agg_step', label:'Zustellung entlang der Spindelachse', unit:'mm', step:1, need:'sattel' },
     { g:'Aufgesattelte Wangen (je Wange ein 3D-Programm)', key:'blank_margin', label:'Rohling: Zugabe ringsum', unit:'mm', step:1, need:'sattel' },
+    { g:'Bohrungen Geländerstäbe', key:'drill_tool', label:'Bohrer von oben (Trittstufen)', unit:'Nr', step:1, need:'rail',
+      help:'Ø der Bohrung = Stabdurchmesser bzw. Kantenlänge. 0 = Werkzeug nach Durchmesser (TpaCAD).' },
+    { g:'Bohrungen Geländerstäbe', key:'drill_wange', label:'Eingestemmte Wange: Bohrungen in der Oberkante', type:'select', need:'wbore',
+      options:[['bohren','Bohraggregat (nach der Außenkontur)'],['markieren','nur markieren (Gravur der Bohrachse)']],
+      help:'Die Stäbe stehen lotrecht, die Bohrung läuft in der Plattenebene schräg zur Wangenkante.' },
+    { g:'Bohrungen Geländerstäbe', key:'hdrill_tool', label:'Werkzeug Bohraggregat', unit:'Nr', step:1, need:'wbore', help:'0 = nach Durchmesser' },
+    { g:'Bohrungen Geländerstäbe', key:'drill_clear', label:'Anfahrabstand vor der Kante', unit:'mm', step:1, need:'wbore' },
     { g:'Gravur Teilenummern', key:'engrave', label:'Teilenummern gravieren', type:'bool',
       help:'Einstrich-Gravur der Teilenummer (z. B. T5, WA1) – wie die Verzierungen in dxf4tcn mit r0/r1.' },
     { g:'Gravur Teilenummern', key:'deco_tool', label:'Werkzeug (r0 „werkzeug“)', unit:'Nr', step:1 },
@@ -154,6 +161,7 @@
       if (f.need === 'risers') return c.construction !== 'massiv' && c.risers;
       if (f.need === 'rail') return c.rail !== 'keins';
       if (f.need === 'sattel') return !!c.sattel;
+      if (f.need === 'wbore') return !!c.wbore;
       return true;
     },
 
@@ -305,6 +313,13 @@
         var t = el('title', {}, g); t.textContent = p.label + ' – ' + p.info;
         el('polygon', { points: P(p.poly), fill: COL[p.kind] || '#ccc', stroke: '#3b2a14', 'stroke-width': sw }, g);
         p.pockets.forEach(function (pk) { el('polygon', { points: P(pk), fill: '#6a9d4f', opacity: 0.75 }, g); });
+        (p.drills || []).forEach(function (h) {
+          el('circle', { cx: h[0], cy: Y(h[1]), r: h[2] / 2, fill: '#c0392b', opacity: 0.85 }, g);
+          if (h[4] !== null && h[4] !== undefined) {
+            var a = h[4] * Math.PI / 180;
+            el('line', { x1: h[0], y1: Y(h[1]), x2: h[0] + Math.cos(a) * h[3], y2: Y(h[1] + Math.sin(a) * h[3]), stroke: '#c0392b', 'stroke-width': h[2] }, g);
+          }
+        });
         var xs = p.poly.map(function (q) { return q[0]; }), ys = p.poly.map(function (q) { return q[1]; });
         var bw = Math.max.apply(null, xs) - Math.min.apply(null, xs), bh = Math.max.apply(null, ys) - Math.min.apply(null, ys);
         var f = Math.min(fs, bh * 0.7, bw / Math.max(2, p.label.length) * 1.6);

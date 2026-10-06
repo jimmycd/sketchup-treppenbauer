@@ -198,7 +198,7 @@
     set: function (key, val) {
       if (key === 'fit_mode' && val !== this.values.fit_mode && this.canCall('switch_mode')) { this.switchMode(val); return; }
       this.values[key] = val;
-      if (/^(variant|construction|side_left|side_right|str_form|risers|rail|show_floor|fit_mode|loch)$/.test(key)) this.updateVisibility();
+      if (/^(variant|construction|side_left|side_right|str_form|risers|rail|bal_shape|show_floor|fit_mode|loch)$/.test(key)) this.updateVisibility();
       this.requestPreview(false);
     },
 
@@ -207,7 +207,9 @@
       if (f.constr && f.constr.indexOf(this.values.construction) < 0) return false;
       if (f.key === 'riser_t' && !this.values.risers) return false;
       if (f.key === 'str_h' && this.values.str_form === 'kurve') return false;
-      if (/^(rail_h|rail_hh|rail_d|newel_s|bal_d|bal_gap|bal_edge|bal_depth|rail_inset)$/.test(f.key) && this.values.rail === 'keins') return false;
+      if (/^(rail_h|rail_hh|rail_d|newel_s|bal_shape|bal_d|bal_dia|bal_gap|bal_edge|bal_depth|rail_inset)$/.test(f.key) && this.values.rail === 'keins') return false;
+      if (f.key === 'bal_d' && this.values.bal_shape === 'rund') return false;
+      if (f.key === 'bal_dia' && this.values.bal_shape !== 'rund') return false;
       if (f.key === 'floor_t' && !this.values.show_floor) return false;
       if (f.fitonly && this.values.fit_mode !== 'raum') return false;
       if (f.freeonly && this.values.fit_mode === 'raum') return false;
