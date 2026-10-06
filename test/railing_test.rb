@@ -100,10 +100,22 @@ Params::ALL.each do |v|
           end
           errs << "#{sd[:which]}: Handlaufbreite" if sd[:mount] == :wange && (rl[:w] - p['str_t']).abs > 1e-6
         end
+        # Handlauf nie dünner als rail_hh (rechtwinklig zur Achse)
+        sd[:rails].each do |rl|
+          rl[:us].each_cons(2).with_index do |(u0, u1), i|
+            dx = Geo.dist(rl[:pts][i], rl[:pts][i + 1])
+            next if dx < 0.5
+            alpha = Math.atan2(rl[:tops][i + 1] - rl[:tops][i], dx)
+            [i, i + 1].each do |j|
+              hp = (rl[:tops][j] - rl[:bots][j]) * Math.cos(alpha)
+              errs << format('%s: Handlauf zu dünn (%.2f cm)', sd[:which], hp) if hp < p['rail_hh'] * 0.9
+            end
+          end
+        end
         # Stäbe oben in den Handlauf gebohrt
         rd = [p['bal_depth'], p['rail_hh'] - 1.0].min
         sd[:bars].each do |b|
-          errs << "#{sd[:which]}: Stab nicht im Handlauf" if (b[:ztop] - (Railing.rail_top(sd, b[:u]) - p['rail_hh'] + rd)).abs > 1e-6
+          errs << "#{sd[:which]}: Stab nicht im Handlauf" if (b[:ztop] - (Railing.rail_top(sd, b[:u]) - Railing.rail_hv(sd, p, b[:u]) + rd)).abs > 1e-6
           errs << "#{sd[:which]}: Handlaufbohrung fehlt" unless b[:rdrill] && sd[:rails].any? { |rl| rl[:drills].any? { |h| h[:u] == b[:u] } }
         end
         # Handlauf endet an den Pfostenflächen (auch an Ecken, Achse versetzt)

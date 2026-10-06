@@ -34,6 +34,11 @@ Gearbeitet wird nur im GitHub-Repo `jimmycd/sketchup-treppenbauer` (nicht mehr i
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
 
+## Version 2.18.0 – Halbgewendelt: Zwischenstück
+- **Innenwange am Zwischenstück stumpf** (`Stringers.match_edge`, aus `butt_joints`): Bei U-Treppen reicht die Unterkante der Wange des folgenden Laufs am Anfang bis zur Unterkante des Zwischenstücks (über die Wangendicke waagerecht, dann mit dessen Neigung bis zur eigenen Kante). Die Stirn des Zwischenstücks liegt so ganz an der Wange an; eine tiefer hängende Spitze wird abgeschnitten. Gilt für gerade und geschwungene Wangenform. Der Stoß Lauf 1 → Zwischenstück ist unverändert.
+- **Handlauf nie dünner als `rail_hh`** (`Railing.rail_hv`): `rail_hh` gilt rechtwinklig zur Handlaufachse, lotrecht also `rail_hh / cos(Neigung)` – betrifft vor allem steile Stellen (Zwischenstück innen, Wendelung). Auch gerade Handläufe sind dadurch lotrecht etwas höher. Stäbe, Bohrungen und Zwischenpfosten rechnen mit der Unterkante.
+- Test: `railing_test` prüft die Handlaufdicke rechtwinklig zur Achse.
+
 ## Version 2.17.0 – Vorschau: Bohrungen der Wangen mit eigenem Rohling
 - Fehler „bei überlangen Wangen fehlen die Bohrungen für die Geländerstäbe“: In den TCN (Lauf A/B) waren die Bohrungen enthalten (W#81 + GSIDE je Bohrung); es fehlte die Anzeige in der CNC-Vorschau für alle Teile mit eigenem Rohling (eingestemmte Wangen, Handläufe, Pfosten), seit sie nicht mehr verschachtelt werden. `Lauf.from_part` liefert jetzt `drills` (Rohling-Koordinaten), `Cnc.preview` gibt sie aus, `cnc.html` zeichnet sie (waagerechte mit Richtung).
 - Vorschau beschriftet die Teilung mit „Lauf A · Feld N1“ und „Lauf B · Feld N (180° gedreht)“. Kopfzeile wie bisher `s3`/`s6`.

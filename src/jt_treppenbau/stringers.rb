@@ -925,6 +925,51 @@ module JTools
           winner = quer[i] && !quer[i + 1] ? :b : :a
           corner_joint(sa[-1], sb[0], t, winner)
         end
+        # Querverbinder (U): die obere Stirn des Zwischenstücks liegt ganz an
+        # der Wange des folgenden Laufs an – deren Unterkante reicht am Anfang
+        # bis zur Unterkante des Zwischenstücks (über die Dicke t waagerecht,
+        # dann mit der Neigung des Zwischenstücks bis zur eigenen Kante); eine
+        # tiefer hängende Spitze wird abgeschnitten (stumpf).
+        quer.each_with_index do |q, i|
+          match_edge(sides[i + 1][0], sides[i][-1], t, :bp, :start) if q
+        end
+      end
+
+      # Kante k (:tp/:bp) des Laufbretts w am Ende (at = :end) bzw. Anfang
+      # (:start) an die Kante des Zwischenstücks q angleichen (siehe oben).
+      def match_edge(w, q, t, k, at)
+        qp = q[k]
+        return if qp.nil? || qp.size < 2 || w[k].nil? || w[k].size < 2
+        if at == :start
+          zq = interp(qp, q[:u1]); sq = (zq - interp(qp, q[:u1] - 1.0))
+          u0 = w[:u0]
+          target = ->(u) { u <= u0 + t ? zq : zq + sq * (u - u0 - t) }
+          pts = w[k]
+        else
+          zq = interp(qp, q[:u0]); sq = (interp(qp, q[:u0] + 1.0) - zq)
+          u1 = w[:u1]
+          target = ->(u) { u >= u1 - t ? zq : zq - sq * (u1 - t - u) }
+          pts = w[k].reverse
+        end
+        d0 = target.(pts[0][0]) - pts[0][1]
+        return if d0.abs < 0.05
+        out = []
+        pts.each_with_index do |(u, z), j|
+          d = target.(u) - z
+          if d * d0 > 0
+            out << [u, target.(u)]
+            next
+          end
+          # Schnittpunkt zwischen j−1 und j, danach die eigene Kante
+          a = pts[j - 1]; da = target.(a[0]) - a[1]
+          f = da / (da - d)
+          uc = a[0] + f * (u - a[0])
+          out << [uc, a[1] + f * (z - a[1])] if (uc - out[-1][0]).abs > 1e-6
+          out.concat(pts[j..-1])
+          break
+        end
+        return if out.size == pts.size && out.each_with_index.all? { |q2, j| q2 == pts[j] }
+        w[k] = at == :start ? out : out.reverse
       end
 
       # Stumpfer Stoß an einer Ecke zwischen Brett a (unten) und b (oben);

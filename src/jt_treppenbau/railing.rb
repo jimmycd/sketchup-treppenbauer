@@ -7,7 +7,8 @@
 #     Querstück) bzw. bei geraden Zwischenpodesten an der Podestvorderkante.
 #   * Der Handlauf läuft von Pfosten zu Pfosten (stößt an die Pfosten).
 #     Querschnitt rechteckig: Breite = Wangendicke (eingestemmt str_t,
-#     aufgesattelt sat_t, sonst rail_d), Höhe rail_hh; Oberkante rail_h über
+#     aufgesattelt sat_t, sonst rail_d), Höhe rail_hh rechtwinklig zur
+#     Handlaufachse (lotrecht rail_hh / cos Neigung); Oberkante rail_h über
 #     den Stufenvorderkanten. Wangenform „gerade“: je Feld eine Gerade (die
 #     niedrigste über allen Stufenkanten), „geschwungen“: knickfreie Kurve
 #     durch die Stufenkanten (wie die Wange) – dann wird der Handlauf als
@@ -225,7 +226,22 @@ module JTools
 
       # Handlauf-Unterkante an u (höchster Wert im Bereich u ± r)
       def rail_bot_max(sd, p, u, r)
-        [u - r, u, u + r].map { |x| rail_top(sd, x) }.max - p['rail_hh']
+        [u - r, u, u + r].map { |x| rail_top(sd, x) - rail_hv(sd, p, x) }.max
+      end
+
+      # Lotrechte Höhe des Handlaufs an u: rail_hh ist der Querschnitt
+      # rechtwinklig zur Handlaufachse, lotrecht also rail_hh / cos(Neigung) –
+      # so wird der Handlauf auch an steilen Stellen (Wendelung innen,
+      # Zwischenstück) nicht dünner und die Stäbe lassen sich noch einbohren.
+      def rail_hv(sd, p, u, sp = nil)
+        h = p['rail_hh']
+        sp ||= (sd[:spans] || []).find { |x| u >= x[:ua] - 1e-6 && u <= x[:ub] + 1e-6 }
+        return h unless sp
+        a = [u - 1.0, sp[:ua]].max; b = [u + 1.0, sp[:ub]].min
+        return h if b - a < 1e-6
+        dx = Geo.dist(span_pt(sd, sp, a), span_pt(sd, sp, b))
+        return h if dx < 1e-6
+        h * Math.sqrt(1.0 + ((sp[:f].(b) - sp[:f].(a)) / dx)**2)
       end
 
       # Oberkante Handlauf an u (Feld, in dem u liegt; sonst Stufenkanten)
@@ -398,7 +414,7 @@ module JTools
               bar[:drill] = { u: u, z: zt, depth: dep, d: d } if dep > 0
             end
             # oben lotrecht in den Handlauf gebohrt
-            zr = rail_top(sd, u) - p['rail_hh']
+            zr = rail_top(sd, u) - rail_hv(sd, p, u)
             rd = [p['bal_depth'], p['rail_hh'] - 1.0].min
             rd = 0.0 if rd < 0
             bar[:ztop] = zr + rd
@@ -522,7 +538,8 @@ module JTools
           drills = sd[:bars].select { |b| b[:rdrill] && b[:u] > ua && b[:u] < ub }
                             .map { |b| b[:rdrill].merge(pt: b[:pt]) }
           { ua: ua, ub: ub, w: sd[:rw], h: h, curved: curved, us: us,
-            pts: us.map { |u| span_pt(sd, sp, u) }, tops: tops, bots: tops.map { |z| z - h }, drills: drills }
+            pts: us.map { |u| span_pt(sd, sp, u) }, tops: tops, bots: us.each_with_index.map { |u, i| tops[i] - rail_hv(sd, p, u, sp) },
+            drills: drills }
         end.compact
       end
 
