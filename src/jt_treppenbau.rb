@@ -24,7 +24,7 @@ module JTools
       @old_version = EXT_VERSION if @extension && !@reloading && defined?(EXT_VERSION)
       verbose = $VERBOSE
       $VERBOSE = nil # „already initialized constant“ beim erneuten Ausführen unterdrücken
-      EXT_VERSION = '2.17.0'.freeze
+      EXT_VERSION = '2.18.0'.freeze
       $VERBOSE = verbose
 
       desc = 'Parametrische Treppen: gerade Läufe, Podest- und Wendelstufen-Treppen (L/U/dreiläufig) ' \
