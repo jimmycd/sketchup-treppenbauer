@@ -90,9 +90,12 @@ module JTools
       def analyse(p)
         plan = Layout.compute(p)
         wange_info(plan, p)
+        data = plan.preview_data
+        # eingestemmte Wangen mitzeichnen, damit Maße und Grundmaß über alles stimmen
+        data[:wangen] = Fit.wange_strips(plan, p).map { |s| s.map { |q| q.map { |v| v.round(2) } } }
         {
           ok: true,
-          plan: plan.preview_data,
+          plan: data,
           info: plan.info,
           warnings: plan.warnings,
           derived: { 'n_steps' => plan.n, 'a_user' => plan.a.round(2), 'h' => plan.h.round(2) }
