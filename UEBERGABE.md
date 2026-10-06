@@ -43,7 +43,8 @@ Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`
 - **Aufgesattelte Wangen** über 3200 mm: `…_Seite1_A/B.tcn` (mit Wenden auch `Seite2_A/B`, Reihenfolge = alphabetisch). Überlang wird nicht formatiert (`Job#long`, Bezug Rohkanten).
 - Einrichtblatt in `…_Wangen_Nacharbeit.txt` (Rohlänge, Teilung, Anschläge, Reihenfolge, Haltestege); Vorschau zeigt die Teilung.
 - Neue CNC-Optionen: `long_mode` (`drehen` | `aus` = Verhalten wie 2.10.0), `mach_l` 3200, `long_overlap` 10, `tab_n` 3, `tab_w` 20, `tab_h` 4.
-- **TpaCAD ungeprüft:** wie Lauf B den hinteren Anschlag als Bezug bekommt (derzeit DH = Rohbreite, y' = W − y, Kommentarzeile „Bezug hinten links“); Haltestege als eigene Bahnstücke mit geringerer Tiefe.
+- **Bezug Lauf B:** über das Feld in TpaCAD – Lauf A im Feld N1 (vorne), Lauf B im Feld N (hinten), steht in der Kommentarzeile und im Einrichtblatt (DH = Rohbreite, y' = W − y).
+- **TpaCAD ungeprüft:** ob das Feld in der TCN gespeichert werden kann (derzeit nur Hinweis); Haltestege als eigene Bahnstücke mit geringerer Tiefe.
 - Tests: neu `test/lauf_test.rb` (4 Formen × Seitenkombinationen × Wenden × fräsen/markieren × 2 Höhen).
 
 ## Version 2.10.0 (Branch `claude/gelaenderstaebe-rund-quadratisch-efegi4`) – Geländerstäbe rund oder quadratisch, Bohrungen im TCN

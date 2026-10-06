@@ -260,8 +260,8 @@ module JTools
           "#{label}: ÜBERLANG – Rohling genau #{l.round} mm lang (Enden rechtwinklig), Breite #{w.round} mm; " \
           'eine Längskante gerade abrichten und als Kante 1 markieren.',
           "#{label}: Teilung bei #{x_t.round} mm von Ende A, Außenkontur überlappt je #{fmt(o['long_overlap'], 0)} mm. " \
-          "Lauf A: Ende A an den linken X-Anschlag, Kante 1 am VORDEREN Y-Anschlag; Lauf B: Wange 180° drehen, " \
-          'Ende B an denselben linken Anschlag, Kante 1 am HINTEREN Y-Anschlag (TpaCAD: Bezug hinten links).',
+          "Lauf A (Feld N1): Ende A an den linken X-Anschlag, Kante 1 am VORDEREN Y-Anschlag; Lauf B (Feld N): " \
+          'Wange 180° drehen, Ende B an denselben linken Anschlag, Kante 1 am HINTEREN Y-Anschlag.',
           "#{label}: Reihenfolge #{seq}. #{tabs} Überstand rechts abstützen."
         ]
       end

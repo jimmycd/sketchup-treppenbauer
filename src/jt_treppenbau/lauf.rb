@@ -9,8 +9,9 @@
 #   Drehen:  Wange 180° in der Tischebene drehen (Oberseite bleibt oben).
 #   Lauf B:  anderes Ende am selben linken Anschlag, Kante 1 jetzt am
 #            hinteren Y-Anschlag; bearbeitet x >= x_T (− Überlauf).
-#            Koordinaten x_B = L − x, y_B = W − y (DH = W, die Rohbreite
-#            kürzt sich heraus, wenn TpaCAD hinten anschlägt – ungeprüft).
+#            Koordinaten x_B = L − x, y_B = W − y (DH = W). In TpaCAD läuft
+#            Lauf A im Feld N1 (vorne), Lauf B im Feld N (hinten): die
+#            Rohbreite kürzt sich dann heraus.
 # Die Teilung x_T liegt in der Überlappungszone an der Stelle mit dem größten
 # Abstand zu allen unteilbaren Bearbeitungen (Nuten, Bohrungen, Gravur,
 # Schrägen); nur Außenkonturen werden geteilt und überlappend gefräst.
@@ -225,8 +226,9 @@ module JTools
       # Lauf mit Einrichthinweis im Kopf und in der Überschrift
       def labeled(run)
         pg = run.prog
-        info = "Lauf #{run.name}: Ende #{run.name} am linken X-Anschlag, Kante 1 am #{run.rot ? 'HINTEREN' : 'VORDEREN'} Y-Anschlag"
-        info += ' (Bezug hinten links, 180 Grad gedreht)' if run.rot
+        info = "Lauf #{run.name}: Feld #{run.rot ? 'N' : 'N1'} – Ende #{run.name} am linken X-Anschlag, " \
+               "Kante 1 am #{run.rot ? 'HINTEREN' : 'VORDEREN'} Y-Anschlag"
+        info += ' (180 Grad gedreht)' if run.rot
         pg.merge(title: "#{pg[:title]} Lauf #{run.name}", comments: (pg[:comments] || []) + ["'#{info}"])
       end
 
