@@ -1,4 +1,5 @@
-# Aufgesattelte Wangen: Restbreite, Anschluss der Unterkante an Ecken,
+# Aufgesattelte Wangen: Restbreite, Anschluss der Unterkante an Ecken (auch
+# keine sichtbare Stirn unter einem durchlaufenden Brett),
 # keine Durchdringung der Bretter im Grundriss.
 require_relative 'su_mock'
 $LOAD_PATH.unshift File.expand_path('../src', __dir__)
@@ -55,7 +56,7 @@ Params::NOSPIRAL.each do |v|
         begin; plan = Layout.compute(p); rescue PlanError => e; next; end
         r = Stringers.compute(plan, p)
         rest = p['sat_rest'].to_f
-        minrest = 1e9; jmax = 0.0; ov = 0.0
+        minrest = 1e9; jmax = 0.0; ov = 0.0; stirn = 0.0
         r[:sattel].each do |b|
           poly = b[:poly]
           botsegs = poly.each_cons(2).select { |(u1, z1), (u2, z2)| u2 < u1 - 1e-9 && [z1, z2].min > 0.01 }
@@ -70,12 +71,24 @@ Params::NOSPIRAL.each do |v|
           next if Geo.cross(a[:dir], b[:dir]).abs < 0.02
           za = bottom_at(a, a[:len]); zb = bottom_at(b, 0.0)
           jmax = [jmax, (za - zb).abs].max if za && zb && za > 0.01 && zb > 0.01
+          # läuft das obere Brett durch (U, Querverbinder), liegt die Stirn des
+          # unteren an seiner Fläche an: dort darf die Unterkante nicht höher
+          # sein (sonst ist die Stirn unter der Wange sichtbar)
+          ea = Geo.add(a[:origin], Geo.mul(a[:dir], a[:len]))
+          if Geo.dot(Geo.sub(ea, b[:origin]), b[:dir]) > 0 && za && za > 0.01
+            # Länge der Anlage: Brettdicke schräg über die Fläche (wie Stringers.sattel)
+            w = a[:t] * (1.0 + Geo.dot(a[:dir], b[:dir]).abs) / [Geo.cross(a[:dir], b[:dir]).abs, 0.3].max
+            (0..10).each do |i|
+              z = bottom_at(b, [w * i / 10.0, b[:len]].min)
+              stirn = [stirn, z - za].max if z
+            end
+          end
         end
-        ok = minrest >= rest - 1e-3 && jmax < 0.05 && ov < 0.01
+        ok = minrest >= rest - 1e-3 && jmax < 0.05 && ov < 0.01 && stirn < 0.05
         n += 1
         fails += 1 unless ok
-        puts format("%-6s " + '%-14s %-5s %-6s ris=%-5s boards=%2d rest min %.2f fuge %.3f überlappung %.3f %s', form, v,
-                    extra.empty? ? 'frei' : "raum#{extra['angle_left']}", dir, ris, r[:sattel].size, minrest == 1e9 ? 0 : minrest, jmax, ov, ok ? 'ok' : 'FEHLER')
+        puts format("%-6s " + '%-14s %-5s %-6s ris=%-5s boards=%2d rest min %.2f fuge %.3f stirn %.3f überlappung %.3f %s', form, v,
+                    extra.empty? ? 'frei' : "raum#{extra['angle_left']}", dir, ris, r[:sattel].size, minrest == 1e9 ? 0 : minrest, jmax, stirn, ov, ok ? 'ok' : 'FEHLER')
       end
     end
   end

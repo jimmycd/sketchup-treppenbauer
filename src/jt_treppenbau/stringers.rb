@@ -1207,6 +1207,9 @@ module JTools
               rb[:a] = rb[:v0] + yb - t / 2.0 / sn
               ra[:end_f] = [-1, 1].map { |f| [-1, 1].map { |g| board_cross(sp, ra, f * t / 2.0, board_face(sp, rb, g * t / 2.0)) }.compact.min }
               rb[:start_f] = [-1, 1].map { |f| [-1, 1].map { |g| board_cross(sp, rb, f * t / 2.0, board_face(sp, ra, g * t / 2.0)) }.compact.min }
+              # Stirn des unteren Bretts liegt auf dieser Länge an der Fläche
+              # des oberen an: dort darf dessen Unterkante nicht höher liegen
+              rb[:wins] = t * (1.0 + cs_) / sn
             else
               # unteres Brett läuft bis zur Außenfläche des oberen durch, das
               # obere stößt an die Seitenfläche des unteren (schräge Enden, passgenau)
@@ -1245,8 +1248,12 @@ module JTools
           recs.each do |r|
             ra = r[:joint]
             next unless ra && !curve
-            vp = r[:a]
+            # läuft das obere Brett durch, beginnt die Steigung erst hinter
+            # der Stirn des unteren (dort waagerecht auf dessen Unterkante)
+            w = r[:wins] ? [r[:wins], r[:b] - r[:a]].min : 0.0
+            vp = r[:a] + w
             zp = sat_bottom(ra, ra[:b])
+            r[:ops] << [:max, [zp, 0.0], vp] if w > 0
             fz = r[:f][0] + r[:f][1] * vp
             next if (zp - fz).abs < 1e-6
             sl = zp > fz ? sat_slope(r[:cr], vp, zp, rest, 1) : nil
@@ -1264,7 +1271,7 @@ module JTools
             end
             sl = sat_slope(r[:cr], vp, zp, rest, 1)
             next unless sl
-            r[:ops] << [zp > fz ? :max : :min, [zp - sl * vp, sl]]
+            r[:ops].insert(w > 0 ? -2 : -1, [zp > fz ? :max : :min, [zp - sl * vp, sl]])
           end
           # Geländerseite: Antritts- und Austrittspfosten stehen in der Treppe
           # (wie bei der eingestemmten Wange), die Wange stößt an den Pfosten
@@ -1299,7 +1306,7 @@ module JTools
               bp = sat_samples(r).map { |v| [v, r[:bf].(v)] }
             else
               lines = [r[:f]] + r[:ops].map { |o| o[1] }
-              us = [v0, v1]
+              us = [v0, v1] + r[:ops].map { |o| o[2] }.compact.select { |x| x > v0 + 1e-6 && x < v1 - 1e-6 }
               lines.combination(2) do |(c1, s1), (c2, s2)|
                 next if (s1 - s2).abs < 1e-12
                 x = (c2 - c1) / (s1 - s2)
@@ -1685,6 +1692,20 @@ module JTools
             rb[:knots] += [e + len]
           end
         end
+        # oberes Brett läuft durch (U, Querverbinder): über die Stirn des
+        # unteren waagerecht auf dessen Unterkante, danach knickfrei zurück
+        # (nur absenken – Restbreite bleibt)
+        recs.each do |rb|
+          ra = rb[:joint]
+          next unless ra && rb[:wins]
+          z0 = ra[:bf].(ra[:b]); e = rb[:a]; w = [rb[:wins], rb[:b] - rb[:a]].min
+          f = rb[:bf]
+          dz = f.(e + w) - z0
+          next if dz <= 1e-6
+          len = [25.0, 0.5 * (rb[:b] - rb[:a] - w)].max
+          rb[:bf] = ->(v) { v <= e + w ? [f.(v), z0].min : f.(v) - dz * (1.0 - smooth.((v - e - w) / len)) }
+          rb[:knots] += [e + w, e + w + len]
+        end
         # Kontrolle mit der tatsächlich gezeichneten Polylinie (Sicherheitsnetz:
         # sonst alle Unterkanten dieser Seite gleichmäßig absenken)
         drop = 0.0
@@ -1737,7 +1758,8 @@ module JTools
       # Unterkante einer aufgesattelten Wange an der Stelle v
       def sat_bottom(r, v)
         z = r[:f][0] + r[:f][1] * v
-        r[:ops].each do |op, (c, s)|
+        r[:ops].each do |op, (c, s), hi|
+          next if hi && v > hi + 1e-9 # nur bis hi (waagerechtes Stück am Stoß)
           l = c + s * v
           z = op == :max ? [z, l].max : [z, l].min
         end
