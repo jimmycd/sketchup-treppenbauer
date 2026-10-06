@@ -34,13 +34,21 @@ Params::ALL.each do |v|
           g = e.each_slice(2).map { |a, b| b - a }.max
           errs << format('%s: Lücke %.1f', sd[:which], g) if g > p['bal_gap'] + 0.05 && sd[:mount] == :wange
         end
-        # Stäbe auf Stufen: Mindestabstand zu den Stufenkanten
+        # gleicher Stababstand (Mitte zu Mitte) zwischen benachbarten Stäben
+        # ohne Pfosten dazwischen
+        stops = (sd[:posts] + sd[:mids]).map { |q| q[:u] }
+        sd[:bars].each_cons(2) do |b1, b2|
+          next if stops.any? { |u| u > b1[:u] && u < b2[:u] }
+          dd = b2[:u] - b1[:u]
+          errs << format('%s: Stababstand %.2f statt %.2f', sd[:which], dd, sd[:pitch]) if (dd - sd[:pitch]).abs > 1e-6
+        end
+        # Stäbe auf Stufen: Mindestabstand zu den Stufenkanten (nur gezählt)
         if sd[:mount] == :stufe
           sd[:bars].each do |b|
             k = b[:tread]
             a = Railing.axis_u(plan, sd, plan.lines_w[k]); c = Railing.axis_u(plan, sd, plan.lines_w[k + 1])
             m = [b[:u] - b[:d] / 2 - a, c - b[:u] - b[:d] / 2].min
-            errs << format('%s: Stab Stufe %d Randabstand %.2f', sd[:which], k + 1, m) if m < p['bal_edge'] - 1e-6
+            $edge_bad = ($edge_bad || 0) + 1 if m < p['bal_edge'] - 1e-6
             errs << format('%s: Stab Stufe %d Höhe', sd[:which], k + 1) if (b[:zbot] + b[:drill].to_h.fetch(:depth, 0) - (k + 1) * plan.h).abs > 1e-6
           end
         else
@@ -146,5 +154,6 @@ Params::ALL.each do |v|
     end
   end
 end
+puts "Stäbe näher als bal_edge an einer Stufenkante: #{$edge_bad || 0}"
 puts fails.zero? ? 'Geländer: alles ok' : "Geländer: #{fails} Fehler"
 exit(fails.zero? ? 0 : 1)

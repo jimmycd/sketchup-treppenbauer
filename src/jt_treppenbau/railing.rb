@@ -17,23 +17,24 @@
 #   * Pfosten am Antritt/Austritt: bei eingestemmter und aufgesattelter Wange
 #     innerhalb der Treppe (Wange stößt an den Pfosten), sonst davor/dahinter.
 #   * Zwischenpfosten: Feld zwischen zwei Pfosten im Grundriss länger als
-#     rail_mid -> Pfosten in der Mitte (an der Stelle des mittleren Stabs),
+#     rail_mid -> Pfosten in der Feldmitte,
 #     UNTER dem Handlauf (Handlauf läuft durch); steht auf der Wange bzw. Stufe.
 #   * Stäbe zwischen den Pfosten, lichter Abstand höchstens bal_gap; quadratisch
 #     (Kantenlänge bal_d) oder rund (Durchmesser bal_dia), Bohrung Ø = Stabmaß.
-#     Lage im Stufenraster: je Stufe wird die Stufentiefe (auf der Stabachse,
-#     von Vorderkante zu Vorderkante der nächsten Stufe) in m gleiche Felder
-#     geteilt, der Stab steht in Feldmitte – bei gleich tiefen Stufen ein
-#     durchgehend gleicher Stababstand, jede Stufe gleich besetzt.
+#     Gleicher Stababstand: alle Stäbe einer Seite haben denselben
+#     waagerechten Mittenabstand (entlang der Achse im Grundriss), der
+#     kleinste der gleichmäßigen Teilungen aller Felder. Je Feld steht die
+#     Reihe mittig zwischen den Pfosten (lichter Abstand zum Pfosten höchstens
+#     bal_gap).
 #       eingestemmte Wange – jeder Stab steht lotrecht auf der Wangenoberkante
 #         und ist um bal_depth eingelassen (lotrechte Bohrung, d. h. schräg zur
 #         Wangenkante).
 #       aufgesattelte Wange, freitragend, Holm, Massiv – die Stäbe stehen auf
-#         den Stufen, jeder Stab hält mindestens bal_edge Abstand zu beiden
-#         Stufenkanten.
+#         den Stufen; die Reihe wird so verschoben, dass möglichst jeder Stab
+#         bal_edge Abstand zu beiden Stufenkanten hält (gleicher Abstand geht
+#         vor, Ausnahmen als Warnung).
 #     Oben sind die Stäbe lotrecht in den Handlauf gebohrt (Tiefe bal_depth,
 #     höchstens Handlaufhöhe − 1 cm, gemessen ab Unterkante in Stabmitte).
-#     Wo neben Pfosten eine Lücke > bal_gap bleibt, wird sie aufgefüllt.
 # Koordinaten: u = Parameter (cm) entlang der Begrenzung (plan.inner bzw.
 # plan.outer), z = Höhe (cm). Die Achse von Pfosten/Stäben/Handlauf liegt
 # auf der Wangenmitte bzw. um rail_inset nach innen versetzt.
@@ -347,47 +348,42 @@ module JTools
         sd[:tb] = (0..plan.treads).map { |k| axis_u(plan, sd, lw[k]) }
         sd[:mids] = []
         out = []
-        maxgap = 0.0
+        # Abschnitte zwischen Pfosten bzw. Zwischenpfosten
+        segs = []
         sd[:spans].each do |sp|
           ua = sp[:ua]; ub = sp[:ub]
           next if ub - ua < 0.5
-          us = d > 0 ? span_treads(plan, p, sd, ua, ub) : []
-          us.reject! { |u, _k| in_post?(sd[:posts], axis_pt(sd, u), d / 2.0 + 0.5) }
-          # Zwischenpfosten in der Mitte (an der Stelle des mittleren Stabs)
           if mid_len > 0 && ub - ua > mid_len + 1e-6
-            um = (ua + ub) / 2.0
-            c = us.min_by { |u, _k| (u - um).abs }
-            c = nil if c && (c[0] - um).abs > [ub - ua, 0.0].max / 4.0
-            mu = c ? c[0] : um
-            mk = c ? c[1] : tread_at(sd, mu)
-            sd[:mids] << mid_post(plan, p, sd, mu, mk, s)
-            us.reject! { |u, _k| (u - mu).abs < s / 2.0 + d / 2.0 + 0.5 }
+            mu = (ua + ub) / 2.0
+            sd[:mids] << mid_post(plan, p, sd, mu, tread_at(sd, mu), s)
+            segs << [ua, mu - s / 2.0] << [mu + s / 2.0, ub]
+          else
+            segs << [ua, ub]
           end
-          # Lücken neben Pfosten über bal_gap auffüllen
-          if d > 0
-            blocks = lambda do
-              ([[ua - 1.0, ua]] + sd[:mids].select { |q| q[:u] > ua && q[:u] < ub }.map { |q| [q[:u] - s / 2.0, q[:u] + s / 2.0] } +
-               us.map { |u, _k| [u - d / 2.0, u + d / 2.0] } + [[ub, ub + 1.0]]).sort_by(&:first)
-            end
-            blocks.().each_cons(2) do |(_, ha), (lb, _)|
-              free = lb - ha
-              next unless free > gap + 0.05
-              span_even(ha, lb, d, gap).each do |u, _|
-                k = tread_at(sd, u)
-                ok = if sd[:mount] == :wange
-                       wange_top(plan, p, sd[:which], u)
-                     else
-                       e = p['bal_edge']
-                       k && u - d / 2.0 - sd[:tb][k] >= e - 1e-6 && sd[:tb][k + 1] - u - d / 2.0 >= e - 1e-6
-                     end
-                us << [u, k] if ok && !in_post?(sd[:posts], axis_pt(sd, u), d / 2.0 + 0.5)
-              end
-            end
-            us.sort_by!(&:first)
-            # größter lichter Abstand in diesem Feld (Pfosten – Stäbe – Pfosten)
-            blocks.().each_cons(2) { |(_, ha), (lb, _)| maxgap = [maxgap, lb - ha].max }
-          end
-          us.each do |u, k|
+        end
+        return out if d <= 0
+        # ein Stababstand (Mitte zu Mitte) für die ganze Seite: der kleinste der
+        # gleichmäßigen Teilungen aller Abschnitte; je Abschnitt so viele Stäbe,
+        # dass der lichte Abstand zu den Pfosten höchstens bal_gap ist, die
+        # Reihe mittig (aufgesattelt: verschoben, damit die Stäbe möglichst
+        # bal_edge Abstand zu den Stufenkanten halten)
+        pitch = segs.map { |a, b| even_pitch(b - a, d, gap) }.compact.min
+        return out unless pitch
+        # aufgesattelt: etwas engeren Abstand wählen, wenn dann weniger Stäbe
+        # an Stufenkanten stehen
+        cands = sd[:mount] == :wange ? [pitch] : (0..15).map { |i| pitch * (1.0 - 0.01 * i) }
+        best = nil
+        cands.each do |pc|
+          rows = segs.map { |a, b| seg_bars(sd, p, a, b, d, gap, pc) }
+          nb = rows.sum(&:last)
+          best = [nb, pc, rows] if best.nil? || nb < best[0]
+          break if nb.zero?
+        end
+        bad, pitch, rows = best
+        sd[:pitch] = pitch
+        rows.each do |us, _nb|
+          us.each do |u|
+            k = tread_at(sd, u)
             bar = { u: u, pt: axis_pt(sd, u), tg: sd[:poly].tangent(u), d: d, shape: shape, tread: k }
             if sd[:mount] == :wange
               zt = wange_top(plan, p, sd[:which], u) || (rail_z(sd, u) - p['rail_h'] + p['str_over'])
@@ -408,15 +404,56 @@ module JTools
             bar[:ztop] = zr + rd
             bar[:rdrill] = { u: u, z: zr, depth: rd, d: d } if rd > 0
             next if zr - zt < 5.0
+            # nicht in einem Pfosten (Wendeltreppe: Pfosten eines anderen
+            # Umlaufs im Grundriss darüber/darunter zählt nicht)
+            hit = sd[:posts].select { |q| q[:zbot].nil? || (q[:zbot] < bar[:ztop] && q[:ztop] > bar[:zbot]) }
+            next if in_post?(hit, bar[:pt], d / 2.0 + 0.5)
             out << bar
           end
         end
-        if maxgap > gap + 0.05
-          warnings << format('Geländer %s: lichter Abstand bis %.1f cm (höchstens %.1f cm) – Stufen für weitere Stäbe zu schmal ' \
-                             '(Mindestabstand zum Stufenrand bzw. Stabquerschnitt verkleinern).',
-                             sd[:which] == :outer ? 'außen' : 'innen', maxgap, gap)
+        if bad > 0
+          warnings << format('Geländer %s: %d Stäbe näher als %.1f cm an einer Stufenkante (gleicher Stababstand geht vor).',
+                             sd[:which] == :outer ? 'außen' : 'innen', bad, p['bal_edge'])
         end
         out
+      end
+
+      # Mittenabstand der gleichmäßigen Teilung eines Abschnitts (lichter
+      # Abstand <= gap, auch zu den Enden); nil, wenn kein Stab nötig ist
+      def even_pitch(len, d, gap)
+        m = ((len - gap) / (gap + d)).ceil
+        return nil if m < 1
+        (len - m * d) / (m + 1) + d
+      end
+
+      # Stäbe eines Abschnitts [a, b] mit festem Mittenabstand pitch.
+      # Rückgabe [[u, ...], Anzahl Stäbe zu nah an einer Stufenkante]
+      def seg_bars(sd, p, a, b, d, gap, pitch)
+        len = b - a
+        return [[], 0] if len - gap <= 0.05
+        m = 1
+        m += 1 while (len - (m - 1) * pitch - d) / 2.0 > gap + 1e-6
+        row = (m - 1) * pitch + d
+        slack = (len - row) / 2.0 # lichter Abstand zu den Enden bei mittiger Reihe
+        at = ->(sh) { (0...m).map { |j| a + slack + sh + d / 2.0 + j * pitch } }
+        return [at.(0.0), 0] if sd[:mount] == :wange
+        # aufgesattelt: Verschiebung im Rahmen (Enden lichter Abstand 0,5 … gap)
+        e = p['bal_edge']
+        lim = [gap - slack, slack - 0.5].min
+        lim = 0.0 if lim < 0
+        best = nil
+        n = (lim / 0.1).floor
+        (-n..n).each do |i|
+          sh = i * 0.1
+          us = at.(sh)
+          nb = us.count do |u|
+            k = tread_at(sd, u)
+            !k || u - d / 2.0 - sd[:tb][k] < e - 1e-6 || sd[:tb][k + 1] - u - d / 2.0 < e - 1e-6
+          end
+          key = [nb, sh.abs]
+          best = [key, us, nb] if best.nil? || (key <=> best[0]) < 0
+        end
+        [best[1], best[2]]
       end
 
       # Stufe (Index), auf der die Stelle u der Achse liegt (nil = keine)
@@ -441,16 +478,6 @@ module JTools
         q
       end
 
-      # Gleichmäßige Teilung zwischen ua und ub: lichter Abstand <= gap
-      def span_even(ua, ub, d, gap)
-        len = ub - ua
-        m = ((len - gap) / (gap + d)).ceil
-        m = 0 if m < 0
-        return [] if m.zero?
-        g = (len - m * d) / (m + 1)
-        (0...m).map { |j| [ua + g + d / 2.0 + j * (g + d), nil] }
-      end
-
       # Parameter der Stabachse, an dem die Stufenlinie w die Achse schneidet
       # (Achse um |off| nach innen versetzt; schräge Stufenlinien verschieben u)
       def axis_u(plan, sd, w)
@@ -468,30 +495,6 @@ module JTools
         c = Geo.dot(dl, nin)
         return uf if c < 0.2
         uf + (-sd[:off]) * Geo.dot(dl, tg) / c
-      end
-
-      # Stäbe im Stufenraster: je Stufe m gleiche Felder, Stab in Feldmitte.
-      # Rückgabe [[u, stufe], ...]
-      def span_treads(plan, p, sd, ua, ub)
-        d = Params.bar_size(p)[1]; gap = p['bal_gap']
-        e = sd[:mount] == :wange ? 0.0 : p['bal_edge'] # auf der Wange: kein Stufenrand
-        lw = plan.lines_w
-        res = []
-        (0...plan.treads).each do |k|
-          a = axis_u(plan, sd, lw[k]); b = axis_u(plan, sd, lw[k + 1])
-          len = b - a
-          next if len < 2 * e + d
-          m = (len / (gap + d)).ceil
-          m = [m, (len / (2 * e + d)).floor].min # Mindestabstand zum Stufenrand geht vor
-          m = 1 if m < 1
-          pitch = len / m
-          (0...m).each do |j|
-            u = a + (j + 0.5) * pitch
-            next if u - d / 2.0 < ua + 0.5 || u + d / 2.0 > ub - 0.5 # nicht in den Pfosten
-            res << [u, k]
-          end
-        end
-        res
       end
 
       # --- Handlauf ---------------------------------------------------------
