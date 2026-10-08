@@ -1,14 +1,14 @@
-# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.19.0, 06.10.2026 – `main`)
+# Übergabe: SketchUp-Plugin „Treppenbau“ (Stand 2.21.0, 08.10.2026 – `main`)
 
 ## Was es ist
 SketchUp-Erweiterung (Ruby, ab SU 2017) für parametrische Treppen mit CNC-Export nach TCN (TpaCAD), angelehnt an Jürgens Plugin **dxf4tcn**.
 
 ## Repository und Dateien
 Gearbeitet wird nur im GitHub-Repo `jimmycd/sketchup-treppenbauer` (nicht mehr im lokalen Ordner `E:\sketchup-treppe`). Größere Änderungen auf eigenem Branch mit PR nach `main`; RBZ direkt auf `main`.
-- `treppenbau_<Version>.rbz` im Hauptordner – aktuell **`treppenbau_2.19.0.rbz`** (Stand `main`), ältere daneben (2.17.0, 2.14.0, 2.12.0, 2.8.0, 2.7.x, 2.6.0). Bauen: `git archive origin/main src`, ohne `jt_aa_treppenbau_dev.rb`, im Ordner `src`: `zip -qrX treppenbau_<Version>.rbz jt_treppenbau.rb jt_treppenbau`.
+- `treppenbau_<Version>.rbz` im Hauptordner – aktuell **`treppenbau_2.21.0.rbz`** (Stand `main`), ältere daneben (2.19.0, 2.17.0, 2.14.0, 2.12.0, 2.8.0, 2.7.x, 2.6.0). Bauen: `git archive origin/main src`, ohne `jt_aa_treppenbau_dev.rb`, im Ordner `src`: `zip -qrX treppenbau_<Version>.rbz jt_treppenbau.rb jt_treppenbau`.
 - `src/` + `test/` – Quellen und Testskripte (ohne SketchUp lauffähig).
 - `jt_aa_treppenbau_dev.rb` – Entwickler-Loader (lädt aus einem lokalen `src`-Ordner).
-- `Treppenbau-Plugin für SketchUp – Dokumentation.docx` – Anwender-Dokumentation (Stand 2.19.0, mit den Abschnitten „Behobene Fehler“, „Konstruktion – warum was wie aufgebaut ist“ und „CNC-Logik“); `Wie der Treppenbau rechnet – … .docx` – Erklärung der Wendelberechnung.
+- `Treppenbau-Plugin für SketchUp – Dokumentation.docx` – Anwender-Dokumentation (Stand 2.21.0, mit den Abschnitten „Behobene Fehler“, „Konstruktion – warum was wie aufgebaut ist“ und „CNC-Logik“); `Wie der Treppenbau rechnet – … .docx` – Erklärung der Wendelberechnung.
 - `tcn_test/` – Testprogramme Seitenaggregat (A–D, `gen_tests.rb`, `check_tests.py`, README) und Beispiel-Export `E_beispiel_l_wendel/` (alter Ablauf vor 2.7.1).
 - `_to_delete/` – Debug-Plots, kann gelöscht werden.
 
@@ -33,6 +33,19 @@ Gearbeitet wird nur im GitHub-Repo `jimmycd/sketchup-treppenbauer` (nicht mehr i
 
 ## Kernprinzip Geometrie
 Grundriss = drei Polylinien in Laufrichtung: `inner`, `walk` (Gehlinie), `outer`. Stufenkante bei Gehlinienposition w: von `inner.at(s(w))` durch `walk.at(w)` bis Schnitt mit `outer`. `s(w)` stückweise linear → steuert Verziehen. Podeste: parallel verschobene Linien (`translated`). Wendeltreppen: Bögen, radial.
+
+## Version 2.21.0 – Aufgesattelte Wange: Stirn am Stoß verdeckt (PR #18)
+- **Fehler:** Wo das obere Brett durchläuft (U am Querverbinder, Z/dreiläufig), stieg dessen Unterkante schon über der Anlage des unteren Bretts an; die Stirn des vorherigen Bretts hing als Keil darunter heraus (bis 6 cm).
+- **Lösung (`Stringers.sattel`):** am Stoß `rb[:wins]` = Anlagelänge t·(1+|cos|)/sin. Gerade Wangenform: Unterkanten-Gerade setzt hinter der Anlage an, davor waagerecht auf Höhe der Unterkante des unteren Bretts (begrenztes Op `[:max, [z, 0], u_bis]` in `sat_bottom`). Geschwungen (`sat_curve`): über die Anlage auf die Unterkante des unteren begrenzt, danach knickfrei zurück (nur absenken, Restbreite bleibt). L-Stoß (unteres Brett läuft durch) war schon bündig.
+- Test: `sattel_test` prüft „stirn“ (auf 2.20.0 59 von 176 Fällen rot, jetzt 0).
+- Offen: Podest-Innenstoß (unteres Brett läuft durch): Stirn des Podestbretts steht bis Podesthöhe über der Oberkante der unteren Wange.
+
+## Version 2.20.0 – Pfosten-TCN mit Taschen und Bohrungen (PR #17)
+- **Fehler:** Die Pfosten-TCN fräste nur die Außenkontur; Taschen (Stufen), Dübel Wange–Pfosten und Schrauben standen nur in `…_Pfosten_Bearbeitung.txt`.
+- **Lösung (`Lauf.post_progs`, `Cnc.long_part`/`post_notes`):** je bearbeitete Fläche ein Programm mit dieser Fläche oben (`…_Gelaenderpfosten_G1_1_Flaeche1.tcn`, `…_2_Flaeche2.tcn`, …), nur senkrecht: Taschen mit dem Nutfräser (`pocket_tool`, Zickzack wie Wangennuten), Bohrungen W#81 (`drill_tool`). Programm 1 aus dem Rohling (Taschen/Bohrungen, dann Außenkontur), weitere am fertigen Pfosten. Lage: Unterende links (x = z), Fläche f oben, Fläche f+1 vorne (y = s − a); zwischen den Programmen 90° nach hinten abrollen (vordere Fläche nach oben). Reihenfolge mit möglichst wenig Rollen. Offene Taschen laufen über die Kante (Rohling r+1 mm, am fertigen Pfosten bis Fräsermitte auf der Kante). Einrichtung im TCN-Kopf und in `…_Nacharbeit.txt`; `…_Pfosten_Bearbeitung.txt` bleibt zur Kontrolle. Überlange Pfosten über `Lauf.split`.
+- Warum kein Seitenaggregat: Taschen per Aggregat sind ungeprüft und der schmale Pfosten lässt wenig Platz; Abrollen braucht nur Standardwerkzeuge.
+- Tests: `pfosten_test` rechnet jede Bohrung/Tasche aus der Tischlage auf den 3D-Pfosten zurück; `bohrung_test` zählt die Pfostenbohrungen mit.
+- **TpaCAD ungeprüft:** Taschen und Tiefbohrung (Schraube 75 mm) am Pfosten, Spannen des schmalen Pfostens, Y-Anschlag beim Überfahren der Kante (versenkt).
 
 ## Version 2.19.0 – Dübel Stufe – aufgesattelte Wange
 - Neue Parameter `sat_dowels` (Dübel je Auflager, Standard 2, 0 = keine) und `sat_dowel_d` (Ø, Standard 1,0 cm), Gruppe Tragkonstruktion, nur bei aufgesattelter Wange. Bohrtiefe je Teil = `dowel_depth`, in der Stufe höchstens `tread_t − 1`.
